@@ -1,0 +1,31 @@
+{
+	"name": "muggle-pug",
+	"version": "0.1.0-alpha.0",
+	"description": "Pug compiled to HTML as muggle-string segments that map to the pug code",
+	"main": "out/index.js",
+	"types": "out/index.d.ts",
+	"license": "MIT",
+	"files": [
+		"out/**/*.js",
+		"out/**/*.d.ts"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/johnsoncodehk/muggle-pug.git"
+	},
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"muggle-string": "0.5.0-alpha.0",
+		"pug-lexer": "^5.0.1",
+		"pug-parser": "^6.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "^26.0.1",
+		"@vue/compiler-dom": "^3.5.0",
+		"typescript": "7.1.0-beta",
+		"vitest": "latest"
+	}
+}
