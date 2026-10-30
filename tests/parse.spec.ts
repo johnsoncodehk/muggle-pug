@@ -121,12 +121,18 @@ describe('parse', () => {
 			}
 		});
 
-		it('map each char of a class or id attribute name to the dot or hash', () => {
-			const result = parse('div.foo');
+		it('map a class or id attribute name to the dot or hash', () => {
+			const result = parse('div.foo#bar');
 
-			expect(result.pieces.filter(piece => typeof piece !== 'string' && piece.start === 3)).toEqual(
-				[...'class'].map(text => ({ start: 3, end: 4, text })).concat([{ start: 3, end: 7, text: "'foo" }]),
-			);
+			expect(result.pieces.filter(piece => typeof piece !== 'string' && piece.start === 3)).toEqual([
+				{ start: 3, end: 4, text: 'class' },
+				{ start: 3, end: 7, text: "'foo" },
+			]);
+			expect(result.pieces).toContainEqual({ start: 7, end: 8, text: 'id' });
+		});
+
+		it('write the attributes in the order of the code, each once', () => {
+			expect(parse('div(a)(b).foo(c!="x") t').htmlCode).toBe(`<div a b class='foo' c!="x">t</div>`);
 		});
 
 		it('give the closing quote of a class literal no source', () => {
@@ -162,14 +168,7 @@ describe('parse', () => {
 			const result = parse(indented);
 
 			expect(result.error).toBeUndefined();
-			expect(result.htmlCode.trim()).toBe(parse(dedented).htmlCode);
-		});
-
-		it('keeps the HTML at the offsets of a template tag around it', () => {
-			const result = parse(indented);
-
-			expect(result.htmlCode.startsWith(' '.repeat('<template>'.length) + '<div')).toBe(true);
-			expect(result.htmlCode.endsWith('<p />' + ' '.repeat('</template>'.length))).toBe(true);
+			expect(result.htmlCode).toBe(parse(dedented).htmlCode);
 		});
 
 		it('maps the HTML to the written template', () => {
@@ -184,15 +183,16 @@ describe('parse', () => {
 			}
 		});
 
-		it('reports the lines of the written template', () => {
-			expect(collectLines(parse(indented).ast)).toEqual(collectLines(parse(dedented).ast));
+		it('reports the lines and columns of the written template', () => {
+			expect(collect(parse(indented).ast, 'line')).toEqual(collect(parse(dedented).ast, 'line'));
+			expect(collect(parse(indented).ast, 'column')).toEqual(collect(parse(dedented).ast, 'column').map(c => c + 2));
 		});
 
 		it('reports the empty line ends of the written template', () => {
 			const pugCode = '\n  div\n\n  p\n';
 			const result = parse(pugCode);
 
-			expect(result.emptyLineEnds).toEqual([pugCode.indexOf('\n\n') + 1]);
+			expect(result.emptyLineEnds).toEqual([0, pugCode.indexOf('\n\n') + 1]);
 		});
 
 		it('reports an error at the line of the written template', () => {
@@ -205,16 +205,16 @@ describe('parse', () => {
 	});
 });
 
-function collectLines(node: unknown, lines: number[] = []) {
+function collect(node: unknown, key: 'line' | 'column', values: number[] = []) {
 	if (node && typeof node === 'object') {
-		if ('line' in node && typeof node.line === 'number') {
-			lines.push(node.line);
+		if (key in node && typeof (node as Record<string, unknown>)[key] === 'number') {
+			values.push((node as Record<string, number>)[key]!);
 		}
 		for (const value of Object.values(node)) {
-			collectLines(value, lines);
+			collect(value, key, values);
 		}
 	}
-	return lines;
+	return values;
 }
 
 function toString(pieces: Piece[], pugCode: string) {

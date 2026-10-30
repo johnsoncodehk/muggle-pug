@@ -18,4 +18,4 @@ const { htmlCode, pieces, ast, error, emptyLineEnds } = parse('div.foo hello');
 - `error`: the lexer or parser error, with 0-based `line` and `column`.
 - `emptyLineEnds`: the offsets of the line ends of the empty lines before a line.
 
-Vue dedents a pug template, but pug rejects an indented first line, so an indented template is parsed as the children of a `template` tag that is blanked out of the HTML and left out of the mapped pieces, the AST and the offsets.
+Vue dedents a pug template, but pug reads an indented first line as text, so an indented template is parsed dedented; the pieces, the AST, the error and the offsets are all of the written template.

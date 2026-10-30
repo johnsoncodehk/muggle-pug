@@ -29,256 +29,125 @@ export interface PugParseResult {
 	emptyLineEnds: number[];
 }
 
-const indentedPrefix = 'template\n';
-const startTagLength = '<template>'.length;
-const endTagLength = '</template>'.length;
+const filename = 'file.pug';
+const lineStartTokens = new Set(['newline', 'indent', 'outdent', ':']);
 
 /**
  * Compiles pug to HTML pieces, which map to the pug code.
  *
- * Vue dedents a pug template (`dedent` of `@vue/compiler-sfc`), but pug reads an indented first line as an
- * error, so an indented template is parsed as the children of a `template` tag. The tag is blanked out of
- * the HTML and left out of the mapped pieces, the AST and the offsets, which are all of `pugCode`.
+ * Vue dedents a pug template (`dedent` of `@vue/compiler-sfc`), but pug reads an indented first line as text, so the
+ * code is lexed dedented and the columns of its tokens are moved back by the indent.
  */
 export function parse(pugCode: string): PugParseResult {
-	if (calculateMinIndent(pugCode) === 0) {
-		return parseCode(pugCode);
-	}
-	const prefixedCode = indentedPrefix + pugCode;
-	const parsed = parseCode(prefixedCode);
-	return {
-		...blankTemplateTag(parsed.pieces, prefixedCode, parsed.htmlCode.length),
-		error: parsed.error && { ...parsed.error, line: parsed.error.line - 1 },
-		ast: parsed.ast && toPrevLine(((parsed.ast as BlockNode).nodes[0] as TagNode).block),
-		emptyLineEnds: parsed.emptyLineEnds.map(offset => offset - indentedPrefix.length),
-	};
-}
-
-/** Blanks the tags of the `template` around the HTML, and shifts the pieces that map past the prefix. */
-function blankTemplateTag(pieces: Piece[], prefixedCode: string, htmlLength: number) {
-	if (htmlLength < startTagLength + endTagLength) {
-		const htmlCode = ' '.repeat(startTagLength + endTagLength);
-		return { htmlCode, pieces: [htmlCode] };
-	}
-	const prefixLength = indentedPrefix.length;
-	const endTagStart = htmlLength - endTagLength;
-	const result: Piece[] = [];
-	let offset = 0;
-	for (const piece of pieces) {
-		const text = pieceText(piece, prefixedCode);
-		const start = offset;
-		offset += text.length;
-		let blanked = text;
-		if (start < startTagLength || offset > endTagStart) {
-			blanked = '';
-			for (let i = 0; i < text.length; i++) {
-				const at = start + i;
-				blanked += at < startTagLength || at >= endTagStart ? ' ' : text[i];
-			}
-		}
-		if (typeof piece === 'string' || piece.start < prefixLength) {
-			result.push(blanked);
-		}
-		else if (piece.text === undefined && blanked === text) {
-			result.push({ start: piece.start - prefixLength, end: piece.end - prefixLength });
-		}
-		else {
-			result.push({ start: piece.start - prefixLength, end: piece.end - prefixLength, text: blanked });
-		}
-	}
-	return { htmlCode: toString(result, prefixedCode.slice(prefixLength)), pieces: result };
-}
-
-function pieceText(piece: Piece, pugCode: string) {
-	return typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end);
-}
-
-function toString(pieces: Piece[], pugCode: string) {
-	return pieces.map(piece => pieceText(piece, pugCode)).join('');
-}
-
-function calculateMinIndent(s: string) {
-	const lines = s.split('\n');
-	const minIndent = lines.reduce(function(minIndent, line) {
-		if (line.trim() === '') {
-			return minIndent;
-		}
-		const indent = line.match(/^\s*/)?.[0]?.length || 0;
-		return Math.min(indent, minIndent);
-	}, Infinity);
-	return minIndent;
-}
-
-function toPrevLine<T extends object>(node: T): T {
-	const visited = new Set<object>();
-	visit(node);
-	return node;
-
-	function visit(obj: object) {
-		if (visited.has(obj)) {
-			return;
-		}
-		visited.add(obj);
-		if ('line' in obj && typeof obj.line === 'number') {
-			obj.line--;
-		}
-		for (const value of Object.values(obj)) {
-			if (value && typeof value === 'object') {
-				visit(value);
-			}
-		}
-	}
-}
-
-function parseCode(pugCode: string): PugParseResult {
-	const fileName = 'file.pug';
 	const lines = new Lines(pugCode);
-	const codes: Piece[] = [];
-	let error: PugError | undefined;
-	let emptyLineEnds: ReturnType<typeof collectEmptyLineEnds> = [];
-	let attrsBlocks: ReturnType<typeof collectAttrsBlocks>;
+	const indent = minIndent(pugCode);
+	const pieces: Piece[] = [];
+	let htmlCode = '';
+	let tokens: pugLex.Token[];
 	let ast: Node | undefined;
+	let emptyLineEnds: number[] = [];
 
 	try {
-		const tokens = pugLex(pugCode, { filename: fileName });
-
-		emptyLineEnds = collectEmptyLineEnds(tokens);
-		attrsBlocks = collectAttrsBlocks(tokens);
-		ast = pugParser(tokens, { filename: fileName, src: pugCode }) as Node;
-
-		visitNode(ast, undefined, undefined);
-
-		codes.push(mapped('', pugCode.trimEnd().length));
+		tokens = pugLex(indent ? pugCode.replace(new RegExp(`^[^\\S\\r\\n]{0,${indent}}`, 'gm'), '') : pugCode, { filename });
 	}
 	catch (e) {
-		const _error = e as NonNullable<typeof error>;
-		error = {
-			..._error,
-			line: _error.line - 1,
-			column: _error.column - 1,
-		};
+		return failed(e as PugError, indent);
+	}
+	for (const { loc } of tokens) {
+		loc.start.column += indent;
+		loc.end.column += indent;
+	}
+	emptyLineEnds = collectEmptyLineEnds(tokens);
+	const startTags = collectStartTags(tokens);
+	try {
+		ast = pugParser(tokens, { filename, src: pugCode }) as Node;
+	}
+	catch (e) {
+		return failed(e as PugError, 0);
+	}
+	visit(ast, undefined);
+	emit(copy('', pugCode.trimEnd().length));
+
+	return { htmlCode, pieces, ast, error: undefined, emptyLineEnds };
+
+	function failed(error: PugError, columnOffset: number): PugParseResult {
+		const line = error.line - 1;
+		const column = offsetAt({ line: error.line, column: error.column + columnOffset }) - lines.offsetAt(line, 0);
+		return { htmlCode: '', pieces: [], ast: undefined, error: { ...error, line, column }, emptyLineEnds };
 	}
 
-	return {
-		htmlCode: toString(codes, pugCode),
-		pieces: codes,
-		error,
-		ast,
-		emptyLineEnds,
-	};
-
-	/** `text` that maps to `sourceLength` chars at `offset`; a copy of them carries no text. */
-	function mapped(text: string, offset: number, sourceLength = text.length): Piece {
-		const end = offset + sourceLength;
-		return text === pugCode.slice(offset, end) ? { start: offset, end } : { start: offset, end, text };
+	function emit(piece: Piece) {
+		if (typeof piece === 'string') {
+			const last = pieces.length - 1;
+			if (typeof pieces[last] === 'string') {
+				pieces[last] += piece;
+			}
+			else if (piece) {
+				pieces.push(piece);
+			}
+			htmlCode += piece;
+		}
+		else {
+			pieces.push(piece);
+			htmlCode += piece.text ?? pugCode.slice(piece.start, piece.end);
+		}
 	}
 
-	function visitNode(node: Node, next: Node | undefined, parent: Node | undefined) {
+	/** `text` that maps to `start`..`end` of the pug code; a copy of them carries no text. */
+	function copy(text: string, start: number, end = start + text.length): Piece {
+		return text === pugCode.slice(start, end) ? { start, end } : { start, end, text };
+	}
+
+	function offsetAt({ line, column }: { line: number; column: number }) {
+		return lines.offsetAt(line - 1, column - 1);
+	}
+
+	function visit(node: Node, next: Node | undefined) {
 		if (node.type === 'Block') {
 			for (let i = 0; i < node.nodes.length; i++) {
-				visitNode(node.nodes[i]!, node.nodes[i + 1], node);
+				visit(node.nodes[i]!, node.nodes[i + 1]);
 			}
 		}
 		else if (node.type === 'Mixin') {
 			if (node.block) {
-				visitNode(node.block, undefined, node);
+				visit(node.block, undefined);
 			}
 		}
 		else if (node.type === 'Tag') {
-			const pugTagRange = getDocRange(node.line, node.column, node.name.length);
-
-			codes.push(mapped('', pugTagRange.start));
-
+			const start = offsetAt(node);
+			const startTag = startTags.get(start);
 			const selfClosing = node.block.nodes.length === 0;
-			const startTagEnd = addStartTag(node, selfClosing);
-			if (!selfClosing) {
-				visitNode(node.block, next, parent);
-				addEndTag(node, next, parent);
+			let startTagEnd = start;
+			emit(copy('', start));
+			emit('<');
+			if (pugCode.startsWith(node.name, start)) {
+				emit(copy(node.name, start));
+				startTagEnd += node.name.length;
 			}
-			codes.push(mapped('', selfClosing ? startTagEnd : pugTagRange.start));
+			else {
+				emit(node.name);
+			}
+			if (startTag) {
+				startTag.pieces.forEach(emit);
+				startTagEnd = Math.max(startTagEnd, startTag.end);
+			}
+			if (selfClosing) {
+				emit(' />');
+				emit(copy('', startTagEnd));
+			}
+			else {
+				emit('>');
+				visit(node.block, undefined);
+				if (next) {
+					emit(copy('', offsetAt({ line: next.line, column: next.type === 'Block' ? 1 : next.column })));
+				}
+				emit(`</${node.name}>`);
+				emit(copy('', start));
+			}
 		}
 		else if (node.type === 'Text') {
-			codes.push(mapped(node.val, getDocOffset(node.line, node.column)));
+			emit(copy(node.val, offsetAt(node)));
 		}
-	}
-
-	/** Returns the end of the start tag in the pug code. */
-	function addStartTag(node: TagNode, selfClosing: boolean) {
-		codes.push(mapped('', getDocOffset(node.line, node.column)));
-		codes.push('<');
-		const tagRange = getDocRange(node.line, node.column, node.name.length);
-		let end = tagRange.start;
-		if (pugCode.substring(tagRange.start, tagRange.end) === node.name) {
-			codes.push(mapped(node.name, tagRange.start));
-			end = tagRange.end;
-		}
-		else {
-			codes.push(node.name);
-		}
-
-		for (const attr of node.attrs.filter(attr => !attr.mustEscape)) {
-			codes.push(' ');
-			if (attr.name === 'class' || attr.name === 'id') {
-				const offset = getDocOffset(attr.line, attr.column);
-				for (const char of attr.name) {
-					codes.push(mapped(char, offset));
-				}
-			}
-			else {
-				codes.push(attr.name);
-			}
-			if (typeof attr.val !== 'boolean') {
-				codes.push('=');
-				const offset = getDocOffset(attr.line, attr.column);
-				const literalName = attr.val.slice(1, -1);
-				if (
-					(attr.name === 'class' || attr.name === 'id')
-					&& pugCode.slice(offset + 1, offset + 1 + literalName.length) === literalName
-				) {
-					// `'foo'` of `.foo`: the opening quote is the `.`, and the closing quote has no source
-					codes.push(mapped(attr.val.slice(0, -1), offset));
-					codes.push(mapped(attr.val.slice(-1), offset + 1 + literalName.length, 0));
-					end = Math.max(end, offset + 1 + literalName.length);
-				}
-				else {
-					codes.push(mapped(attr.val, offset));
-				}
-			}
-		}
-
-		const attrsBlock = attrsBlocks.get(getDocOffset(node.line, node.column)); // support attr auto-complete in spaces
-		if (attrsBlock) {
-			codes.push(' ');
-			codes.push(mapped(attrsBlock.text, attrsBlock.offset));
-			end = Math.max(end, attrsBlock.end);
-		}
-
-		if (selfClosing) {
-			codes.push(' />');
-		}
-		else {
-			codes.push('>');
-		}
-		return end;
-	}
-
-	function addEndTag(node: TagNode, next: Node | undefined, parent: Node | undefined) {
-		let nextStart: number | undefined;
-		if (next) {
-			if (next.type === 'Block') {
-				nextStart = getDocOffset(next.line, 1);
-			}
-			else {
-				nextStart = getDocOffset(next.line, next.column);
-			}
-		}
-		else if (!parent) {
-			nextStart = pugCode.length;
-		}
-		if (nextStart !== undefined) {
-			codes.push(mapped('', nextStart));
-		}
-		codes.push(`</${node.name}>`);
 	}
 
 	function collectEmptyLineEnds(tokens: pugLex.Token[]) {
@@ -302,110 +171,95 @@ function parseCode(pugCode: string): PugParseResult {
 		return ends.sort((a, b) => a - b);
 	}
 
-	function collectAttrsBlocks(tokens: pugLex.Token[]) {
-		const blocks = new Map<number, { offset: number; end: number; text: string }>();
+	/**
+	 * The attributes of the start tags by the offsets of the tags, in the order of the code: a class or id of `.foo` or
+	 * `#foo`, and the code of an attribute block, whose commas are line ends and whose template literal values are
+	 * quoted, to read as HTML attributes of the same length.
+	 */
+	function collectStartTags(tokens: pugLex.Token[]) {
+		const startTags = new Map<number, { pieces: Piece[]; end: number }>();
+		let tagStart = 0;
 
 		for (let i = 0; i < tokens.length; i++) {
 			const token = tokens[i]!;
+			const prevToken = tokens[i - 1];
+			if (token.type === 'tag' || !prevToken || lineStartTokens.has(prevToken.type)) {
+				tagStart = offsetAt(token.loc.start);
+			}
+			if (token.type !== 'class' && token.type !== 'id' && token.type !== 'start-attributes') {
+				continue;
+			}
+			let startTag = startTags.get(tagStart);
+			if (!startTag) {
+				startTags.set(tagStart, startTag = { pieces: [], end: tagStart });
+			}
 			if (token.type === 'start-attributes') {
-				let tagStart: pugLex.Token = token;
-
-				for (let j = i - 1; j >= 0; j--) {
-					const prevToken = tokens[j]!;
-
-					if (
-						prevToken.type === 'newline'
-						|| prevToken.type === 'indent'
-						|| prevToken.type === 'outdent'
-						|| prevToken.type === ':'
-					) {
-						break;
-					}
-
-					tagStart = prevToken;
-
-					if (prevToken.type === 'tag') {
-						break;
-					}
-				}
-
-				let prevToken: pugLex.Token = token;
+				const start = offsetAt(token.loc.end);
 				let text = '';
-
+				let end = start;
 				for (i++; i < tokens.length; i++) {
 					const attrToken = tokens[i]!;
-					addPrevSpace(attrToken);
-
-					if (attrToken.type === 'attribute') {
-						let attrText = pugCode.substring(
-							getDocOffset(attrToken.loc.start.line, attrToken.loc.start.column),
-							getDocOffset(attrToken.loc.end.line, attrToken.loc.end.column),
-						);
-						if (typeof attrToken.val === 'string' && attrText.includes('=')) {
-							// the lexer reads the code with `\n` line ends, so the value is found in that text and read from the code
-							const valStart = toCodeIndex(
-								attrText,
-								attrText.replace(/\r\n?/g, '\n').lastIndexOf(attrToken.val),
-							);
-							let valText = attrText.slice(valStart);
-							if (valText.startsWith('`') && valText.endsWith('`')) {
-								const innerContent = valText.slice(1, -1);
-								if (!innerContent.includes('"')) {
-									valText = `"${innerContent}"`;
-								}
-								else if (!innerContent.includes("'")) {
-									valText = `'${innerContent}'`;
-								}
-								else {
-									// Both quote types present: convert inner single quotes to double quotes
-									// This allows using single quotes as the outer delimiter
-									// JavaScript accepts both 'str' and "str" for string literals
-									valText = `'${innerContent.replace(/'/g, '"')}'`;
-								}
-							}
-							valText = valText.replace(/ \\(?=\r?\n)/g, '//');
-							text += attrText.slice(0, valStart) + valText;
-						}
-						else {
-							text += attrText;
-						}
-					}
-					else if (attrToken.type === 'end-attributes') {
-						blocks.set(getDocOffset(tagStart.loc.start.line, tagStart.loc.start.column), {
-							offset: getDocOffset(token.loc.end.line, token.loc.end.column),
-							end: getDocOffset(attrToken.loc.end.line, attrToken.loc.end.column),
-							text,
-						});
+					const attrStart = offsetAt(attrToken.loc.start);
+					text += pugCode.slice(end, attrStart).replace(/,/g, '\n');
+					end = offsetAt(attrToken.loc.end);
+					if (attrToken.type !== 'attribute') {
 						break;
 					}
-
-					prevToken = attrToken;
+					text += attributeHTML(pugCode.slice(attrStart, end), attrToken.val);
 				}
-
-				function addPrevSpace(currentToken: pugLex.Token) {
-					text += pugCode.substring(
-						getDocOffset(prevToken.loc.end.line, prevToken.loc.end.column),
-						getDocOffset(currentToken.loc.start.line, currentToken.loc.start.column),
-					).replace(/,/g, '\n');
-				}
+				startTag.pieces.push(' ', copy(text, start));
+				startTag.end = Math.max(startTag.end, end);
+			}
+			else {
+				// `'foo'` of `.foo`: the opening quote is the `.`, and the closing quote has no source
+				const start = offsetAt(token.loc.start);
+				const end = start + 1 + token.val.length;
+				startTag.pieces.push(' ', { start, end: start + 1, text: token.type }, '=', copy(`'${token.val}`, start, end), {
+					start: end,
+					end,
+					text: "'",
+				});
+				startTag.end = Math.max(startTag.end, end);
 			}
 		}
 
-		return blocks;
+		return startTags;
 	}
+}
 
-	function getDocOffset(pugLine: number, pugColumn: number) {
-		return lines.offsetAt(pugLine - 1, pugColumn - 1);
+/** `code` of an attribute as HTML: a template literal value quoted, and a ` \` line continuation a comment. */
+function attributeHTML(code: string, val: string | boolean) {
+	if (typeof val !== 'string' || !code.includes('=')) {
+		return code;
 	}
+	// the lexer reads the code with `\n` line ends, so the value is the end of the code with `\r\n` as one char
+	let valStart = code.length;
+	for (let n = val.length; n > 0; n--) {
+		valStart--;
+		if (code[valStart] === '\n' && code[valStart - 1] === '\r') {
+			valStart--;
+		}
+	}
+	let valCode = code.slice(valStart);
+	if (valCode.startsWith('`') && valCode.endsWith('`')) {
+		const inner = valCode.slice(1, -1);
+		valCode = !inner.includes('"')
+			? `"${inner}"`
+			: !inner.includes("'")
+			? `'${inner}'`
+			: `'${inner.replace(/'/g, '"')}'`;
+	}
+	return code.slice(0, valStart) + valCode.replace(/ \\(?=\r?\n)/g, '//');
+}
 
-	function getDocRange(pugLine: number, pugColumn: number, length: number) {
-		const start = getDocOffset(pugLine, pugColumn);
-		const end = start + length;
-		return {
-			start,
-			end,
-		};
+function minIndent(code: string) {
+	let min = Infinity;
+	for (const line of code.split('\n')) {
+		if (line.trim() !== '') {
+			min = Math.min(min, line.match(/^\s*/)![0].length);
+		}
 	}
+	return min === Infinity ? 0 : min;
 }
 
 export type Node = BlockNode | MixinNode | TagNode | TextNode | CommentNode | BlockCommentNode;
@@ -467,16 +321,4 @@ export interface MixinNode {
 	block: BlockNode | null;
 	line: number;
 	column: number;
-}
-
-/** The index in `code` of `index` in `code` with `\n` line ends. */
-function toCodeIndex(code: string, index: number) {
-	let codeIndex = 0;
-	for (let i = 0; i < index; i++) {
-		if (code[codeIndex] === '\r' && code[codeIndex + 1] === '\n') {
-			codeIndex++;
-		}
-		codeIndex++;
-	}
-	return codeIndex;
 }
