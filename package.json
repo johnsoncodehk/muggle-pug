@@ -18,7 +18,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"muggle-string": "0.5.0-alpha.0",
+		"muggle-string": "^1.0.0-alpha.0",
 		"pug-lexer": "^5.0.1",
 		"pug-parser": "^6.0.0"
 	},
