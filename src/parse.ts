@@ -1,14 +1,8 @@
+import type { Piece } from 'muggle-string';
 import pugLex from 'pug-lexer';
 import { Lines } from './lines';
 
 const pugParser = require('pug-parser');
-
-/**
- * Generated HTML: new text, which maps nowhere, or the range `start`..`end` of the pug code. A range without `text` is
- * a copy of the pug code there; `text` is HTML that maps to the range as a whole, such as `class` for the `.` of
- * `.foo`, or the closing quote that pug adds to its value (an empty range). An empty range is an anchor.
- */
-export type PugPiece = string | { start: number; end: number; text?: string };
 
 export interface PugError {
 	code: string;
@@ -23,7 +17,11 @@ export interface PugError {
 export interface PugParseResult {
 	/** The HTML of the pieces. */
 	htmlCode: string;
-	pieces: PugPiece[];
+	/**
+	 * The HTML, as new text and ranges of the pug code. `text` is HTML that maps to its range as a whole, such as `class`
+	 * for the `.` of `.foo`, or the closing quote that pug adds to a value (an empty range).
+	 */
+	pieces: Piece[];
 	/** The pug AST, with 1-based lines and columns of the pug code. */
 	ast: Node | undefined;
 	error: PugError | undefined;
@@ -57,14 +55,14 @@ export function parse(pugCode: string): PugParseResult {
 }
 
 /** Blanks the tags of the `template` around the HTML, and shifts the pieces that map past the prefix. */
-function blankTemplateTag(pieces: PugPiece[], prefixedCode: string, htmlLength: number) {
+function blankTemplateTag(pieces: Piece[], prefixedCode: string, htmlLength: number) {
 	if (htmlLength < startTagLength + endTagLength) {
 		const htmlCode = ' '.repeat(startTagLength + endTagLength);
 		return { htmlCode, pieces: [htmlCode] };
 	}
 	const prefixLength = indentedPrefix.length;
 	const endTagStart = htmlLength - endTagLength;
-	const result: PugPiece[] = [];
+	const result: Piece[] = [];
 	let offset = 0;
 	for (const piece of pieces) {
 		const text = pieceText(piece, prefixedCode);
@@ -91,11 +89,11 @@ function blankTemplateTag(pieces: PugPiece[], prefixedCode: string, htmlLength: 
 	return { htmlCode: toString(result, prefixedCode.slice(prefixLength)), pieces: result };
 }
 
-function pieceText(piece: PugPiece, pugCode: string) {
+function pieceText(piece: Piece, pugCode: string) {
 	return typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end);
 }
 
-function toString(pieces: PugPiece[], pugCode: string) {
+function toString(pieces: Piece[], pugCode: string) {
 	return pieces.map(piece => pieceText(piece, pugCode)).join('');
 }
 
@@ -135,7 +133,7 @@ function toPrevLine<T extends object>(node: T): T {
 function parseCode(pugCode: string): PugParseResult {
 	const fileName = 'file.pug';
 	const lines = new Lines(pugCode);
-	const codes: PugPiece[] = [];
+	const codes: Piece[] = [];
 	let error: PugError | undefined;
 	let emptyLineEnds: ReturnType<typeof collectEmptyLineEnds> = [];
 	let attrsBlocks: ReturnType<typeof collectAttrsBlocks>;
@@ -170,7 +168,7 @@ function parseCode(pugCode: string): PugParseResult {
 	};
 
 	/** `text` that maps to `sourceLength` chars at `offset`; a copy of them carries no text. */
-	function mapped(text: string, offset: number, sourceLength = text.length): PugPiece {
+	function mapped(text: string, offset: number, sourceLength = text.length): Piece {
 		const end = offset + sourceLength;
 		return text === pugCode.slice(offset, end) ? { start: offset, end } : { start: offset, end, text };
 	}

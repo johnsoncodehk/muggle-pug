@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { parse, type PugPiece } from '../src';
+import type { Piece } from 'muggle-string';
+import { parse } from '../src';
 
 describe('parse', () => {
+	it('the example of the readme', () => {
+		const { htmlCode, pieces } = parse('div.foo hello');
+		expect(htmlCode).toBe(`<div class='foo'>hello</div>`);
+		expect(pieces).toContainEqual({ start: 8, end: 13 });
+	});
+
 	describe('multiline class binding with backticks', () => {
 		it('should parse multiline :class attribute with backtick template string', () => {
 			const pugCode = `span(
@@ -210,7 +217,7 @@ function collectLines(node: unknown, lines: number[] = []) {
 	return lines;
 }
 
-function toString(pieces: PugPiece[], pugCode: string) {
+function toString(pieces: Piece[], pugCode: string) {
 	return pieces.map(piece => typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end))
 		.join('');
 }
