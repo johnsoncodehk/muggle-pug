@@ -1,7 +1,7 @@
 {
 	"name": "muggle-pug",
 	"version": "0.1.0-alpha.0",
-	"description": "Pug compiled to HTML as segments that map to the pug code",
+	"description": "Pug compiled to HTML as pieces that map to the pug code",
 	"main": "out/index.js",
 	"types": "out/index.d.ts",
 	"license": "MIT",

@@ -1,6 +1,6 @@
 import * as CompilerDOM from '@vue/compiler-dom';
 import { describe, expect, it } from 'vitest';
-import { parse, type PugSegment } from '../src';
+import { parse, type PugPiece } from '../src';
 
 describe('parse', () => {
 	describe('multiline class binding with backticks', () => {
@@ -115,22 +115,22 @@ describe('parse', () => {
 		});
 	});
 
-	describe('segments', () => {
+	describe('pieces', () => {
 		it('are the HTML, and map tag names, attributes and text to the pug code', () => {
 			const pugCode = 'div#app(title="x")\n  p.text hello\n  a(href="/") link\n';
 			const result = parse(pugCode);
 
-			expect(toString(result.segments)).toBe(result.htmlCode);
+			expect(toString(result.pieces, pugCode)).toBe(result.htmlCode);
 			for (const text of ['div', 'title="x"', 'hello', 'href="/"', 'link']) {
-				expect(result.segments).toContainEqual([text, undefined, pugCode.indexOf(text), text.length]);
+				expect(result.pieces).toContainEqual({ start: pugCode.indexOf(text), end: pugCode.indexOf(text) + text.length });
 			}
 		});
 
 		it('map each char of a class or id attribute name to the dot or hash', () => {
 			const result = parse('div.foo');
 
-			expect(result.segments.filter(segment => typeof segment !== 'string' && segment[2] === 3)).toEqual(
-				[...'class'].map(char => [char, undefined, 3, 1]).concat([["'foo", undefined, 3, 4]]),
+			expect(result.pieces.filter(piece => typeof piece !== 'string' && piece.start === 3)).toEqual(
+				[...'class'].map(text => ({ start: 3, end: 4, text })).concat([{ start: 3, end: 7, text: "'foo" }]),
 			);
 		});
 
@@ -139,7 +139,7 @@ describe('parse', () => {
 			const result = parse(pugCode);
 
 			expect(result.htmlCode).toBe("<div class='foo' />");
-			expect(result.segments).toContainEqual(["'", undefined, pugCode.length, 0]);
+			expect(result.pieces).toContainEqual({ start: pugCode.length, end: pugCode.length, text: "'" });
 		});
 
 		it('map the lines of CRLF code', () => {
@@ -147,14 +147,14 @@ describe('parse', () => {
 			const result = parse(pugCode);
 
 			expect(result.error).toBeUndefined();
-			expect(result.segments).toContainEqual(['hello', undefined, pugCode.indexOf('hello'), 'hello'.length]);
+			expect(result.pieces).toContainEqual({ start: pugCode.indexOf('hello'), end: pugCode.indexOf('hello') + 'hello'.length });
 		});
 
 		it('are the HTML up to the error', () => {
 			const result = parse('div(');
 
 			expect(result.error?.code).toBe('PUG:NO_END_BRACKET');
-			expect(result.segments).toEqual([]);
+			expect(result.pieces).toEqual([]);
 			expect(result.htmlCode).toBe('');
 		});
 	});
@@ -180,11 +180,11 @@ describe('parse', () => {
 		it('maps the HTML to the written template', () => {
 			const result = parse(indented);
 
-			expect(toString(result.segments)).toBe(result.htmlCode);
-			expect(result.segments.some(segment => typeof segment !== 'string')).toBe(true);
-			for (const segment of result.segments) {
-				if (typeof segment !== 'string') {
-					expect(segment[0]).toBe(indented.slice(segment[2], segment[2] + segment[3]));
+			expect(toString(result.pieces, indented)).toBe(result.htmlCode);
+			expect(result.pieces.some(piece => typeof piece !== 'string')).toBe(true);
+			for (const piece of result.pieces) {
+				if (typeof piece !== 'string') {
+					expect(piece.text).toBeUndefined();
 				}
 			}
 		});
@@ -222,6 +222,7 @@ function collectLines(node: unknown, lines: number[] = []) {
 	return lines;
 }
 
-function toString(segments: PugSegment[]) {
-	return segments.map(segment => typeof segment === 'string' ? segment : segment[0]).join('');
+function toString(pieces: PugPiece[], pugCode: string) {
+	return pieces.map(piece => typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end))
+		.join('');
 }

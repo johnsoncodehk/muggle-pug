@@ -4,11 +4,11 @@ import { Lines } from './lines';
 const pugParser = require('pug-parser');
 
 /**
- * Generated HTML: plain text, or text copied from `sourceOffset` of the pug code, whose source range is `sourceLength`
- * chars long. A source length that differs from the text is of a char that pug adds, such as the closing quote of
- * the value of `.foo`.
+ * Generated HTML: new text, which maps nowhere, or the range `start`..`end` of the pug code. A range without `text` is
+ * a copy of the pug code there; `text` is HTML that maps to the range as a whole, such as `class` for the `.` of
+ * `.foo`, or the closing quote that pug adds to its value (an empty range). An empty range is an anchor.
  */
-export type PugSegment = string | [text: string, source: undefined, sourceOffset: number, sourceLength: number];
+export type PugPiece = string | { start: number; end: number; text?: string };
 
 export interface PugError {
 	code: string;
@@ -21,9 +21,9 @@ export interface PugError {
 }
 
 export interface PugParseResult {
-	/** The HTML of the segments. */
+	/** The HTML of the pieces. */
 	htmlCode: string;
-	segments: PugSegment[];
+	pieces: PugPiece[];
 	/** The pug AST, with 1-based lines and columns of the pug code. */
 	ast: Node | undefined;
 	error: PugError | undefined;
@@ -36,37 +36,38 @@ const startTagLength = '<template>'.length;
 const endTagLength = '</template>'.length;
 
 /**
- * Compiles pug to HTML segments, which map to the pug code.
+ * Compiles pug to HTML pieces, which map to the pug code.
  *
  * Vue dedents a pug template (`dedent` of `@vue/compiler-sfc`), but pug reads an indented first line as an
  * error, so an indented template is parsed as the children of a `template` tag. The tag is blanked out of
- * the HTML and left out of the mapped segments, the AST and the offsets, which are all of `pugCode`.
+ * the HTML and left out of the mapped pieces, the AST and the offsets, which are all of `pugCode`.
  */
 export function parse(pugCode: string): PugParseResult {
 	if (calculateMinIndent(pugCode) === 0) {
 		return parseCode(pugCode);
 	}
-	const parsed = parseCode(indentedPrefix + pugCode);
-	const prefixLength = indentedPrefix.length;
+	const prefixedCode = indentedPrefix + pugCode;
+	const parsed = parseCode(prefixedCode);
 	return {
-		...blankTemplateTag(parsed.segments, parsed.htmlCode.length, prefixLength),
+		...blankTemplateTag(parsed.pieces, prefixedCode, parsed.htmlCode.length),
 		error: parsed.error && { ...parsed.error, line: parsed.error.line - 1 },
 		ast: parsed.ast && toPrevLine(((parsed.ast as BlockNode).nodes[0] as TagNode).block),
-		emptyLineEnds: parsed.emptyLineEnds.map(offset => offset - prefixLength),
+		emptyLineEnds: parsed.emptyLineEnds.map(offset => offset - indentedPrefix.length),
 	};
 }
 
-/** Blanks the tags of the `template` around the HTML, and shifts the segments that map past the prefix. */
-function blankTemplateTag(segments: PugSegment[], htmlLength: number, prefixLength: number) {
+/** Blanks the tags of the `template` around the HTML, and shifts the pieces that map past the prefix. */
+function blankTemplateTag(pieces: PugPiece[], prefixedCode: string, htmlLength: number) {
 	if (htmlLength < startTagLength + endTagLength) {
 		const htmlCode = ' '.repeat(startTagLength + endTagLength);
-		return { htmlCode, segments: [htmlCode] };
+		return { htmlCode, pieces: [htmlCode] };
 	}
+	const prefixLength = indentedPrefix.length;
 	const endTagStart = htmlLength - endTagLength;
-	const result: PugSegment[] = [];
+	const result: PugPiece[] = [];
 	let offset = 0;
-	for (const segment of segments) {
-		const text = typeof segment === 'string' ? segment : segment[0];
+	for (const piece of pieces) {
+		const text = pieceText(piece, prefixedCode);
 		const start = offset;
 		offset += text.length;
 		let blanked = text;
@@ -77,22 +78,25 @@ function blankTemplateTag(segments: PugSegment[], htmlLength: number, prefixLeng
 				blanked += at < startTagLength || at >= endTagStart ? ' ' : text[i];
 			}
 		}
-		if (typeof segment === 'string' || segment[2] < prefixLength) {
+		if (typeof piece === 'string' || piece.start < prefixLength) {
 			result.push(blanked);
 		}
+		else if (piece.text === undefined && blanked === text) {
+			result.push({ start: piece.start - prefixLength, end: piece.end - prefixLength });
+		}
 		else {
-			result.push([blanked, undefined, segment[2] - prefixLength, segment[3]]);
+			result.push({ start: piece.start - prefixLength, end: piece.end - prefixLength, text: blanked });
 		}
 	}
-	return { htmlCode: toString(result), segments: result };
+	return { htmlCode: toString(result, prefixedCode.slice(prefixLength)), pieces: result };
 }
 
-function toString(segments: PugSegment[]) {
-	return segments.map(segment => typeof segment === 'string' ? segment : segment[0]).join('');
+function pieceText(piece: PugPiece, pugCode: string) {
+	return typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end);
 }
 
-function mapped(text: string, offset: number, sourceLength = text.length): PugSegment {
-	return [text, undefined, offset, sourceLength];
+function toString(pieces: PugPiece[], pugCode: string) {
+	return pieces.map(piece => pieceText(piece, pugCode)).join('');
 }
 
 function calculateMinIndent(s: string) {
@@ -131,7 +135,7 @@ function toPrevLine<T extends object>(node: T): T {
 function parseCode(pugCode: string): PugParseResult {
 	const fileName = 'file.pug';
 	const lines = new Lines(pugCode);
-	const codes: PugSegment[] = [];
+	const codes: PugPiece[] = [];
 	let error: PugError | undefined;
 	let emptyLineEnds: ReturnType<typeof collectEmptyLineEnds> = [];
 	let attrsBlocks: ReturnType<typeof collectAttrsBlocks>;
@@ -158,12 +162,18 @@ function parseCode(pugCode: string): PugParseResult {
 	}
 
 	return {
-		htmlCode: toString(codes),
-		segments: codes,
+		htmlCode: toString(codes, pugCode),
+		pieces: codes,
 		error,
 		ast,
 		emptyLineEnds,
 	};
+
+	/** `text` that maps to `sourceLength` chars at `offset`; a copy of them carries no text. */
+	function mapped(text: string, offset: number, sourceLength = text.length): PugPiece {
+		const end = offset + sourceLength;
+		return text === pugCode.slice(offset, end) ? { start: offset, end } : { start: offset, end, text };
+	}
 
 	function visitNode(node: Node, next: Node | undefined, parent: Node | undefined) {
 		if (node.type === 'Block') {
