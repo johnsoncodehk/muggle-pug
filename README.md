@@ -1,6 +1,6 @@
-Pug compiled to HTML as [muggle-string](https://github.com/johnsoncodehk/muggle-string) segments that map to the pug code.
+Pug compiled to HTML as segments that map to the pug code.
 
-muggle-pug depends only on muggle-string, `pug-lexer` and `pug-parser`, and builds no mappings: every consumer turns the segments into the mappings of its own tooling.
+muggle-pug depends only on `pug-lexer` and `pug-parser`, and builds no mappings: every consumer turns the segments into the mappings of its own tooling.
 
 ## Usage
 

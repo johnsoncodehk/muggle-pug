@@ -1,15 +1,14 @@
-import type { Segment } from 'muggle-string';
 import pugLex from 'pug-lexer';
 import { Lines } from './lines';
 
 const pugParser = require('pug-parser');
 
 /**
- * Generated HTML: plain text, or text copied from `sourceOffset` of the pug code, whose source range is `data`
+ * Generated HTML: plain text, or text copied from `sourceOffset` of the pug code, whose source range is `sourceLength`
  * chars long. A source length that differs from the text is of a char that pug adds, such as the closing quote of
  * the value of `.foo`.
  */
-export type PugSegment = Segment<undefined, number>;
+export type PugSegment = string | [text: string, source: undefined, sourceOffset: number, sourceLength: number];
 
 export interface PugError {
 	code: string;
