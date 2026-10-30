@@ -23,7 +23,6 @@
 	},
 	"devDependencies": {
 		"@types/node": "^26.0.1",
-		"@vue/compiler-dom": "^3.5.0",
 		"typescript": "7.1.0-beta",
 		"vitest": "latest"
 	}

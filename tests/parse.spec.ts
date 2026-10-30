@@ -1,4 +1,3 @@
-import * as CompilerDOM from '@vue/compiler-dom';
 import { describe, expect, it } from 'vitest';
 import { parse, type PugPiece } from '../src';
 
@@ -56,7 +55,7 @@ describe('parse', () => {
 			expect(result.error).toBeUndefined();
 		});
 
-		it('should produce valid HTML that Vue compiler can parse when both quote types present', () => {
+		it('should write attribute values with both quote types as single-quoted HTML attributes', () => {
 			const pugCode = `span(
   v-tooltip="{ text: 'Hello' }"
   @click="onClick('item')"
@@ -73,14 +72,18 @@ describe('parse', () => {
 			const result = parse(pugCode);
 			expect(result.error).toBeUndefined();
 
-			const errors: any[] = [];
-			CompilerDOM.parse(result.htmlCode, {
-				onError(error) {
-					errors.push(error);
-				},
-			});
-
-			expect(errors).toHaveLength(0);
+			expect(result.htmlCode).toBe(`<span 
+  v-tooltip="{ text: 'Hello' }"
+  @click="onClick('item')"
+  :class='[
+    "my-component__element",
+    "my-component__modifier",
+    {
+      "my-component__element--active my-component__element--highlighted": (state.type === "active")
+    }
+  ]'
+  data-testid="my-element"
+ />`);
 		});
 
 		it('should convert inner single quotes to double quotes when both quote types present', () => {
@@ -92,26 +95,11 @@ describe('parse', () => {
 			expect(result.htmlCode).toContain(':class=\'["foo", "bar"]\'');
 		});
 
-		it('should produce valid JavaScript expression when both quote types present', () => {
+		it('should write the whole HTML when both quote types present', () => {
 			const pugCode = `div(:class=\`["foo", 'bar']\`)`;
 			const result = parse(pugCode);
 
-			const errors: any[] = [];
-			const ast = CompilerDOM.parse(result.htmlCode, {
-				onError(error) {
-					errors.push(error);
-				},
-			});
-
-			expect(errors).toHaveLength(0);
-
-			const div = ast.children[0] as CompilerDOM.ElementNode;
-			const classDir = div.props.find((p): p is CompilerDOM.DirectiveNode =>
-				p.type === CompilerDOM.NodeTypes.DIRECTIVE && p.name === 'bind'
-			);
-
-			// Single quotes in the original are converted to double quotes
-			expect((classDir?.exp as CompilerDOM.SimpleExpressionNode)?.content).toBe('["foo", "bar"]');
+			expect(result.htmlCode).toBe(`<div :class='["foo", "bar"]' />`);
 		});
 	});
 
