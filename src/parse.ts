@@ -15,8 +15,6 @@ export interface PugError {
 }
 
 export interface PugParseResult {
-	/** The HTML of the pieces. */
-	htmlCode: string;
 	/**
 	 * The HTML, as new text and ranges of the pug code. `text` is HTML that maps to its range as a whole, such as `class`
 	 * for the `.` of `.foo`, or the closing quote that pug adds to a value (an empty range).
@@ -42,7 +40,6 @@ export function parse(pugCode: string): PugParseResult {
 	const lines = new Lines(pugCode);
 	const indent = minIndent(pugCode);
 	const pieces: Piece[] = [];
-	let htmlCode = '';
 	let tokens: pugLex.Token[];
 	let ast: Node | undefined;
 	let emptyLineEnds: number[] = [];
@@ -68,12 +65,12 @@ export function parse(pugCode: string): PugParseResult {
 	visit(ast, undefined);
 	emit(copy('', pugCode.trimEnd().length));
 
-	return { htmlCode, pieces, ast, error: undefined, emptyLineEnds };
+	return { pieces, ast, error: undefined, emptyLineEnds };
 
 	function failed(error: PugError, columnOffset: number): PugParseResult {
 		const line = error.line - 1;
 		const column = offsetAt({ line: error.line, column: error.column + columnOffset }) - lines.offsetAt(line, 0);
-		return { htmlCode: '', pieces: [], ast: undefined, error: { ...error, line, column }, emptyLineEnds };
+		return { pieces: [], ast: undefined, error: { ...error, line, column }, emptyLineEnds };
 	}
 
 	function emit(piece: Piece) {
@@ -85,11 +82,9 @@ export function parse(pugCode: string): PugParseResult {
 			else if (piece) {
 				pieces.push(piece);
 			}
-			htmlCode += piece;
 		}
 		else {
 			pieces.push(piece);
-			htmlCode += piece.text ?? pugCode.slice(piece.start, piece.end);
 		}
 	}
 

@@ -4,8 +4,9 @@ import { parse } from '../src';
 
 describe('parse', () => {
 	it('the example of the readme', () => {
-		const { htmlCode, pieces } = parse('div.foo hello');
-		expect(htmlCode).toBe(`<div class='foo'>hello</div>`);
+		const pugCode = 'div.foo hello';
+		const { pieces } = parse(pugCode);
+		expect(toString(pieces, pugCode)).toBe(`<div class='foo'>hello</div>`);
 		expect(pieces).toContainEqual({ start: 8, end: 13 });
 	});
 
@@ -27,8 +28,8 @@ describe('parse', () => {
 			const result = parse(pugCode);
 
 			expect(result.error).toBeUndefined();
-			expect(result.htmlCode).toContain('<span');
-			expect(result.htmlCode).toContain(':class=');
+			expect(toString(result.pieces, pugCode)).toContain('<span');
+			expect(toString(result.pieces, pugCode)).toContain(':class=');
 		});
 
 		it('should correctly convert backtick to double quotes when no double quotes inside', () => {
@@ -37,7 +38,7 @@ describe('parse', () => {
 			const result = parse(pugCode);
 
 			expect(result.error).toBeUndefined();
-			expect(result.htmlCode).toContain(":class=\"['foo', 'bar']\"");
+			expect(toString(result.pieces, pugCode)).toContain(":class=\"['foo', 'bar']\"");
 		});
 
 		it('should correctly convert backtick to single quotes when double quotes inside', () => {
@@ -46,7 +47,7 @@ describe('parse', () => {
 			const result = parse(pugCode);
 
 			expect(result.error).toBeUndefined();
-			expect(result.htmlCode).toContain(':class=\'["foo", "bar"]\'');
+			expect(toString(result.pieces, pugCode)).toContain(':class=\'["foo", "bar"]\'');
 		});
 
 		it('should handle multiline backtick values with newlines', () => {
@@ -79,7 +80,7 @@ describe('parse', () => {
 			const result = parse(pugCode);
 			expect(result.error).toBeUndefined();
 
-			expect(result.htmlCode).toBe(`<span 
+			expect(toString(result.pieces, pugCode)).toBe(`<span 
   v-tooltip="{ text: 'Hello' }"
   @click="onClick('item')"
   :class='[
@@ -99,14 +100,14 @@ describe('parse', () => {
 
 			expect(result.error).toBeUndefined();
 			// Inner single quotes are converted to double quotes, outer delimiter becomes single quote
-			expect(result.htmlCode).toContain(':class=\'["foo", "bar"]\'');
+			expect(toString(result.pieces, pugCode)).toContain(':class=\'["foo", "bar"]\'');
 		});
 
 		it('should write the whole HTML when both quote types present', () => {
 			const pugCode = `div(:class=\`["foo", 'bar']\`)`;
 			const result = parse(pugCode);
 
-			expect(result.htmlCode).toBe(`<div :class='["foo", "bar"]' />`);
+			expect(toString(result.pieces, pugCode)).toBe(`<div :class='["foo", "bar"]' />`);
 		});
 	});
 
@@ -115,7 +116,6 @@ describe('parse', () => {
 			const pugCode = 'div#app(title="x")\n  p.text hello\n  a(href="/") link\n';
 			const result = parse(pugCode);
 
-			expect(toString(result.pieces, pugCode)).toBe(result.htmlCode);
 			for (const text of ['div', 'title="x"', 'hello', 'href="/"', 'link']) {
 				expect(result.pieces).toContainEqual({ start: pugCode.indexOf(text), end: pugCode.indexOf(text) + text.length });
 			}
@@ -132,14 +132,15 @@ describe('parse', () => {
 		});
 
 		it('write the attributes in the order of the code, each once', () => {
-			expect(parse('div(a)(b).foo(c!="x") t').htmlCode).toBe(`<div a b class='foo' c!="x">t</div>`);
+			const pugCode = 'div(a)(b).foo(c!="x") t';
+			expect(toString(parse(pugCode).pieces, pugCode)).toBe(`<div a b class='foo' c!="x">t</div>`);
 		});
 
 		it('give the closing quote of a class literal no source', () => {
 			const pugCode = 'div.foo';
 			const result = parse(pugCode);
 
-			expect(result.htmlCode).toBe("<div class='foo' />");
+			expect(toString(result.pieces, pugCode)).toBe("<div class='foo' />");
 			expect(result.pieces).toContainEqual({ start: pugCode.length, end: pugCode.length, text: "'" });
 		});
 
@@ -156,7 +157,6 @@ describe('parse', () => {
 
 			expect(result.error?.code).toBe('PUG:NO_END_BRACKET');
 			expect(result.pieces).toEqual([]);
-			expect(result.htmlCode).toBe('');
 		});
 	});
 
@@ -168,13 +168,12 @@ describe('parse', () => {
 			const result = parse(indented);
 
 			expect(result.error).toBeUndefined();
-			expect(result.htmlCode).toBe(parse(dedented).htmlCode);
+			expect(toString(result.pieces, indented)).toBe(toString(parse(dedented).pieces, dedented));
 		});
 
 		it('maps the HTML to the written template', () => {
 			const result = parse(indented);
 
-			expect(toString(result.pieces, indented)).toBe(result.htmlCode);
 			expect(result.pieces.some(piece => typeof piece !== 'string')).toBe(true);
 			for (const piece of result.pieces) {
 				if (typeof piece !== 'string') {

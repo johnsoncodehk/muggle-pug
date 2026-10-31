@@ -7,13 +7,14 @@ muggle-pug depends only on `pug-lexer`, `pug-parser` and the `Piece` type of [mu
 ```ts
 import { parse } from 'muggle-pug';
 
-const { htmlCode, pieces, ast, error, emptyLineEnds } = parse('div.foo hello');
-// htmlCode: "<div class='foo'>hello</div>"
+const pugCode = 'div.foo hello';
+const { pieces, ast, error, emptyLineEnds } = parse(pugCode);
 // pieces: [..., { start: 8, end: 13 }, ...]
+const html = pieces.map(piece => typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end)).join('');
+// html: "<div class='foo'>hello</div>"
 ```
 
 - `pieces`: the HTML, as muggle-string pieces of one source and no data: new text and `{ start, end, text? }` ranges of the pug code. A range without `text` copies the pug code there; `text` is HTML that maps to the range as a whole, such as `class` for the `.` of `.foo`, or the closing quote that pug adds to its value (an empty range).
-- `htmlCode`: the text of the pieces.
 - `ast`: the pug AST, with 1-based lines and columns.
 - `error`: the lexer or parser error, with 0-based `line` and `column`.
 - `emptyLineEnds`: the offsets of the line ends of the empty lines before a line.
