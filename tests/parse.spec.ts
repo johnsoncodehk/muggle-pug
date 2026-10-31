@@ -187,13 +187,6 @@ describe('parse', () => {
 			expect(collect(parse(indented).ast, 'column')).toEqual(collect(parse(dedented).ast, 'column').map(c => c + 2));
 		});
 
-		it('reports the empty line ends of the written template', () => {
-			const pugCode = '\n  div\n\n  p\n';
-			const result = parse(pugCode);
-
-			expect(result.emptyLineEnds).toEqual([0, pugCode.indexOf('\n\n') + 1]);
-		});
-
 		it('reports an error at the line of the written template', () => {
 			const broken = '\n  div\n    span(title="x"\n  p\n';
 			const result = parse(broken);

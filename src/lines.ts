@@ -31,37 +31,6 @@ export class Lines {
 		return this.beforeEOL(Math.min(lineOffset + character, nextLineOffset), lineOffset);
 	}
 
-	/** The 0-based line of `offset`. */
-	lineAt(offset: number) {
-		const { offsets } = this;
-		offset = Math.max(Math.min(offset, this.text.length), 0);
-		let low = 0;
-		let high = offsets.length;
-		while (low < high) {
-			const mid = (low + high) >>> 1;
-			if (offsets[mid]! > offset) {
-				high = mid;
-			}
-			else {
-				low = mid + 1;
-			}
-		}
-		return low - 1;
-	}
-
-	/** The text of the 0-based `line`, without its line break, except a `\r` of a `\r\n`. */
-	lineText(line: number) {
-		const endOffset = this.offsetAt(line + 1, 0);
-		const end = this.lineAt(endOffset) === line ? endOffset : endOffset - 1;
-		return this.text.substring(this.offsetAt(line, 0), this.normalize(end));
-	}
-
-	/** `offset` clamped to the text and moved before the end of its line. */
-	private normalize(offset: number) {
-		offset = Math.max(Math.min(offset, this.text.length), 0);
-		return this.beforeEOL(offset, this.offsets[this.lineAt(offset)]!);
-	}
-
 	private beforeEOL(offset: number, lineOffset: number) {
 		while (offset > lineOffset && isEOL(this.text.charCodeAt(offset - 1))) {
 			offset--;

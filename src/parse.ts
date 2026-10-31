@@ -23,8 +23,6 @@ export interface PugParseResult {
 	/** The pug AST, with 1-based lines and columns of the pug code. */
 	ast: Node | undefined;
 	error: PugError | undefined;
-	/** The offsets of the line ends of the empty lines that the pug code has before a line. */
-	emptyLineEnds: number[];
 }
 
 const filename = 'file.pug';
@@ -42,7 +40,6 @@ export function parse(pugCode: string): PugParseResult {
 	const pieces: Piece[] = [];
 	let tokens: pugLex.Token[];
 	let ast: Node | undefined;
-	let emptyLineEnds: number[] = [];
 
 	try {
 		tokens = pugLex(indent ? pugCode.replace(new RegExp(`^[^\\S\\r\\n]{0,${indent}}`, 'gm'), '') : pugCode, { filename });
@@ -54,7 +51,6 @@ export function parse(pugCode: string): PugParseResult {
 		loc.start.column += indent;
 		loc.end.column += indent;
 	}
-	emptyLineEnds = collectEmptyLineEnds(tokens);
 	const startTags = collectStartTags(tokens);
 	try {
 		ast = pugParser(tokens, { filename, src: pugCode }) as Node;
@@ -65,12 +61,12 @@ export function parse(pugCode: string): PugParseResult {
 	visit(ast, undefined);
 	emit(copy('', pugCode.trimEnd().length));
 
-	return { pieces, ast, error: undefined, emptyLineEnds };
+	return { pieces, ast, error: undefined };
 
 	function failed(error: PugError, columnOffset: number): PugParseResult {
 		const line = error.line - 1;
 		const column = offsetAt({ line: error.line, column: error.column + columnOffset }) - lines.offsetAt(line, 0);
-		return { pieces: [], ast: undefined, error: { ...error, line, column }, emptyLineEnds };
+		return { pieces: [], ast: undefined, error: { ...error, line, column } };
 	}
 
 	function emit(piece: Piece) {
@@ -143,27 +139,6 @@ export function parse(pugCode: string): PugParseResult {
 		else if (node.type === 'Text') {
 			emit(copy(node.val, offsetAt(node)));
 		}
-	}
-
-	function collectEmptyLineEnds(tokens: pugLex.Token[]) {
-		const ends: number[] = [];
-
-		for (const token of tokens) {
-			if (token.type === 'newline' || token.type === 'outdent') {
-				let currentLine = token.loc.start.line - 2;
-				let prevLine = lines.lineText(currentLine);
-				while (prevLine.trim() === '') {
-					ends.push(lines.offsetAt(currentLine + 1, 0) - 1);
-					if (currentLine <= 0) {
-						break;
-					}
-					currentLine--;
-					prevLine = lines.lineText(currentLine);
-				}
-			}
-		}
-
-		return ends.sort((a, b) => a - b);
 	}
 
 	/**
