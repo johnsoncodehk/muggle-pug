@@ -4,17 +4,17 @@ import { Lines } from './lines';
 
 const pugParser = require('pug-parser');
 
-export interface PugError {
+/** An error of the pug lexer or parser. */
+export interface ParseError {
 	code: string;
-	msg: string;
+	message: string;
 	/** 0-based. */
 	line: number;
 	/** 0-based. */
 	column: number;
-	filename: string;
 }
 
-export interface PugParseResult {
+export interface ParseResult {
 	/**
 	 * The HTML, as new text and ranges of the pug code. `text` is HTML that maps to its range as a whole, such as `class`
 	 * for the `.` of `.foo`, or the closing quote that pug adds to a value (an empty range).
@@ -22,7 +22,15 @@ export interface PugParseResult {
 	pieces: Piece[];
 	/** The pug AST, with 1-based lines and columns of the pug code. */
 	ast: Node | undefined;
-	error: PugError | undefined;
+	error: ParseError | undefined;
+}
+
+/** The error that pug-lexer and pug-parser throw, with 1-based lines and columns. */
+interface PugError {
+	code: string;
+	msg: string;
+	line: number;
+	column: number;
 }
 
 const filename = 'file.pug';
@@ -34,7 +42,7 @@ const lineStartTokens = new Set(['newline', 'indent', 'outdent', ':']);
  * Vue dedents a pug template (`dedent` of `@vue/compiler-sfc`), but pug reads an indented first line as text, so the
  * code is lexed dedented and the columns of its tokens are moved back by the indent.
  */
-export function parse(pugCode: string): PugParseResult {
+export function parse(pugCode: string): ParseResult {
 	const lines = new Lines(pugCode);
 	const indent = minIndent(pugCode);
 	const pieces: Piece[] = [];
@@ -63,10 +71,9 @@ export function parse(pugCode: string): PugParseResult {
 
 	return { pieces, ast, error: undefined };
 
-	function failed(error: PugError, columnOffset: number): PugParseResult {
-		const line = error.line - 1;
-		const column = offsetAt({ line: error.line, column: error.column + columnOffset }) - lines.offsetAt(line, 0);
-		return { pieces: [], ast: undefined, error: { ...error, line, column } };
+	function failed({ code, msg, line, column }: PugError, columnOffset: number): ParseResult {
+		column = offsetAt({ line, column: column + columnOffset }) - lines.offsetAt(line - 1, 0);
+		return { pieces: [], ast: undefined, error: { code, message: msg, line: line - 1, column } };
 	}
 
 	function emit(piece: Piece) {

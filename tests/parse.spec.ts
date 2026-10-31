@@ -155,7 +155,12 @@ describe('parse', () => {
 		it('are the HTML up to the error', () => {
 			const result = parse('div(');
 
-			expect(result.error?.code).toBe('PUG:NO_END_BRACKET');
+			expect(result.error).toEqual({
+				code: 'PUG:NO_END_BRACKET',
+				message: 'The end of the string reached with no closing bracket ) found.',
+				line: 0,
+				column: 4,
+			});
 			expect(result.pieces).toEqual([]);
 		});
 	});
