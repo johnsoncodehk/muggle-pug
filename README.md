@@ -5,10 +5,10 @@ muggle-pug depends only on `pug-lexer`, `pug-parser` and the `Piece` type of [mu
 ## Usage
 
 ```ts
-import { parse } from 'muggle-pug';
+import { compile } from 'muggle-pug';
 
 const pugCode = 'div.foo hello';
-const { pieces, ast, error } = parse(pugCode);
+const { pieces, ast, error } = compile(pugCode);
 // pieces: [..., { start: 8, end: 13 }, ...]
 const html = pieces.map(piece => typeof piece === 'string' ? piece : piece.text ?? pugCode.slice(piece.start, piece.end)).join('');
 // html: "<div class='foo'>hello</div>"

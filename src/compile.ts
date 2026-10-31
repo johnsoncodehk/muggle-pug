@@ -14,7 +14,7 @@ export interface ParseError {
 	column: number;
 }
 
-export interface ParseResult {
+export interface CompileResult {
 	/**
 	 * The HTML, as new text and ranges of the pug code. `text` is HTML that maps to its range as a whole, such as `class`
 	 * for the `.` of `.foo`, or the closing quote that pug adds to a value (an empty range).
@@ -42,7 +42,7 @@ const lineStartTokens = new Set(['newline', 'indent', 'outdent', ':']);
  * Vue dedents a pug template (`dedent` of `@vue/compiler-sfc`), but pug reads an indented first line as text, so the
  * code is lexed dedented and the columns of its tokens are moved back by the indent.
  */
-export function parse(pugCode: string): ParseResult {
+export function compile(pugCode: string): CompileResult {
 	const lines = new Lines(pugCode);
 	const indent = minIndent(pugCode);
 	const pieces: Piece[] = [];
@@ -71,7 +71,7 @@ export function parse(pugCode: string): ParseResult {
 
 	return { pieces, ast, error: undefined };
 
-	function failed({ code, msg, line, column }: PugError, columnOffset: number): ParseResult {
+	function failed({ code, msg, line, column }: PugError, columnOffset: number): CompileResult {
 		column = offsetAt({ line, column: column + columnOffset }) - lines.offsetAt(line - 1, 0);
 		return { pieces: [], ast: undefined, error: { code, message: msg, line: line - 1, column } };
 	}

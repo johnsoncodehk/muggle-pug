@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Piece } from 'muggle-string';
-import { parse } from '../src';
+import { compile } from '../src';
 
-describe('parse', () => {
+describe('compile', () => {
 	it('the example of the readme', () => {
 		const pugCode = 'div.foo hello';
-		const { pieces } = parse(pugCode);
+		const { pieces } = compile(pugCode);
 		expect(toString(pieces, pugCode)).toBe(`<div class='foo'>hello</div>`);
 		expect(pieces).toContainEqual({ start: 8, end: 13 });
 	});
 
 	describe('multiline class binding with backticks', () => {
-		it('should parse multiline :class attribute with backtick template string', () => {
+		it('should compile multiline :class attribute with backtick template string', () => {
 			const pugCode = `span(
   v-tooltip="{ text: 'Hello' }"
   @click="onClick('item')"
@@ -25,7 +25,7 @@ describe('parse', () => {
   data-testid="my-element"
 )`;
 
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(result.error).toBeUndefined();
 			expect(toString(result.pieces, pugCode)).toContain('<span');
@@ -35,7 +35,7 @@ describe('parse', () => {
 		it('should correctly convert backtick to double quotes when no double quotes inside', () => {
 			const pugCode = `div(:class=\`['foo', 'bar']\`)`;
 
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(result.error).toBeUndefined();
 			expect(toString(result.pieces, pugCode)).toContain(":class=\"['foo', 'bar']\"");
@@ -44,7 +44,7 @@ describe('parse', () => {
 		it('should correctly convert backtick to single quotes when double quotes inside', () => {
 			const pugCode = `div(:class=\`["foo", "bar"]\`)`;
 
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(result.error).toBeUndefined();
 			expect(toString(result.pieces, pugCode)).toContain(':class=\'["foo", "bar"]\'');
@@ -58,7 +58,7 @@ describe('parse', () => {
   ]\`
 )`;
 
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(result.error).toBeUndefined();
 		});
@@ -77,7 +77,7 @@ describe('parse', () => {
   data-testid="my-element"
 )`;
 
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 			expect(result.error).toBeUndefined();
 
 			expect(toString(result.pieces, pugCode)).toBe(`<span 
@@ -96,7 +96,7 @@ describe('parse', () => {
 
 		it('should convert inner single quotes to double quotes when both quote types present', () => {
 			const pugCode = `div(:class=\`["foo", 'bar']\`)`;
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(result.error).toBeUndefined();
 			// Inner single quotes are converted to double quotes, outer delimiter becomes single quote
@@ -105,7 +105,7 @@ describe('parse', () => {
 
 		it('should write the whole HTML when both quote types present', () => {
 			const pugCode = `div(:class=\`["foo", 'bar']\`)`;
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(toString(result.pieces, pugCode)).toBe(`<div :class='["foo", "bar"]' />`);
 		});
@@ -114,7 +114,7 @@ describe('parse', () => {
 	describe('pieces', () => {
 		it('are the HTML, and map tag names, attributes and text to the pug code', () => {
 			const pugCode = 'div#app(title="x")\n  p.text hello\n  a(href="/") link\n';
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			for (const text of ['div', 'title="x"', 'hello', 'href="/"', 'link']) {
 				expect(result.pieces).toContainEqual({ start: pugCode.indexOf(text), end: pugCode.indexOf(text) + text.length });
@@ -122,7 +122,7 @@ describe('parse', () => {
 		});
 
 		it('map a class or id attribute name to the dot or hash', () => {
-			const result = parse('div.foo#bar');
+			const result = compile('div.foo#bar');
 
 			expect(result.pieces.filter(piece => typeof piece !== 'string' && piece.start === 3)).toEqual([
 				{ start: 3, end: 4, text: 'class' },
@@ -133,12 +133,12 @@ describe('parse', () => {
 
 		it('write the attributes in the order of the code, each once', () => {
 			const pugCode = 'div(a)(b).foo(c!="x") t';
-			expect(toString(parse(pugCode).pieces, pugCode)).toBe(`<div a b class='foo' c!="x">t</div>`);
+			expect(toString(compile(pugCode).pieces, pugCode)).toBe(`<div a b class='foo' c!="x">t</div>`);
 		});
 
 		it('give the closing quote of a class literal no source', () => {
 			const pugCode = 'div.foo';
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(toString(result.pieces, pugCode)).toBe("<div class='foo' />");
 			expect(result.pieces).toContainEqual({ start: pugCode.length, end: pugCode.length, text: "'" });
@@ -146,14 +146,14 @@ describe('parse', () => {
 
 		it('map the lines of CRLF code', () => {
 			const pugCode = 'div\r\n  p hello\r\n';
-			const result = parse(pugCode);
+			const result = compile(pugCode);
 
 			expect(result.error).toBeUndefined();
 			expect(result.pieces).toContainEqual({ start: pugCode.indexOf('hello'), end: pugCode.indexOf('hello') + 'hello'.length });
 		});
 
 		it('are the HTML up to the error', () => {
-			const result = parse('div(');
+			const result = compile('div(');
 
 			expect(result.error).toEqual({
 				code: 'PUG:NO_END_BRACKET',
@@ -170,14 +170,14 @@ describe('parse', () => {
 		const dedented = indented.replace(/^ {2}/gm, '');
 
 		it('parses as the template written without the indent', () => {
-			const result = parse(indented);
+			const result = compile(indented);
 
 			expect(result.error).toBeUndefined();
-			expect(toString(result.pieces, indented)).toBe(toString(parse(dedented).pieces, dedented));
+			expect(toString(result.pieces, indented)).toBe(toString(compile(dedented).pieces, dedented));
 		});
 
 		it('maps the HTML to the written template', () => {
-			const result = parse(indented);
+			const result = compile(indented);
 
 			expect(result.pieces.some(piece => typeof piece !== 'string')).toBe(true);
 			for (const piece of result.pieces) {
@@ -188,16 +188,16 @@ describe('parse', () => {
 		});
 
 		it('reports the lines and columns of the written template', () => {
-			expect(collect(parse(indented).ast, 'line')).toEqual(collect(parse(dedented).ast, 'line'));
-			expect(collect(parse(indented).ast, 'column')).toEqual(collect(parse(dedented).ast, 'column').map(c => c + 2));
+			expect(collect(compile(indented).ast, 'line')).toEqual(collect(compile(dedented).ast, 'line'));
+			expect(collect(compile(indented).ast, 'column')).toEqual(collect(compile(dedented).ast, 'column').map(c => c + 2));
 		});
 
 		it('reports an error at the line of the written template', () => {
 			const broken = '\n  div\n    span(title="x"\n  p\n';
-			const result = parse(broken);
+			const result = compile(broken);
 
 			expect(result.error?.code).toBe('PUG:NO_END_BRACKET');
-			expect(result.error?.line).toBe(parse(broken.replace(/^ {2}/gm, '')).error?.line);
+			expect(result.error?.line).toBe(compile(broken.replace(/^ {2}/gm, '')).error?.line);
 		});
 	});
 });
