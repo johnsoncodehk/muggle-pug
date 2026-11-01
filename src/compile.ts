@@ -392,7 +392,8 @@ function emitAttribute(emitter: Emitter, attr: Attribute, start: number) {
 /**
  * Emits the JavaScript code of an attribute value as it is. A single string or template literal is an HTML value in
  * quotes that it has not in it: its own, or else `"`, or else `'`; with both in it, its `"` are `'`. So an HTML
- * parser reads the value to its end, as one value.
+ * parser reads the value to its end, as one value. The `\` of a line continuation in it is a space, so that the value
+ * as an expression of Vue has no invalid char.
  */
 function emitValue(emitter: Emitter, start: number, end: number) {
 	const { source, pieces } = emitter;
@@ -427,9 +428,10 @@ function emitValue(emitter: Emitter, start: number, end: number) {
 	put(emitter, start, start + 1, htmlQuote);
 	let kept = start + 1;
 	for (let i = start + 1; i < end - 1; i++) {
-		if (source[i] === htmlQuote) {
+		const continues = source[i] === '\\' && (source[i + 1] === '\n' || source[i + 1] === '\r');
+		if (source[i] === htmlQuote || continues) {
 			keep(emitter, kept, i);
-			pieces.push({ start: i, end: i + 1, text: "'" });
+			pieces.push({ start: i, end: i + 1, text: continues ? ' ' : "'" });
 			kept = i + 1;
 		}
 	}

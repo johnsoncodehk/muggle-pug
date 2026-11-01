@@ -37,7 +37,7 @@ The HTML is for tools, not what pug renders: an HTML parser reads it as the elem
   - `<`, `>` and `/>` at positions. An element without content closes with `/>`, so that no void element has an end tag. An end tag stands for no range, followed by the end of the element as an empty range: as the range of the name, or as a position, a tool that edits or shows both names of an element, such as a rename or a highlight, would have the one range twice. An implicit `div` is at the position of the tag.
   - A class or id literal, `.foo` or `#foo`, is ` class="` or ` id="` whose name and quote stand for its `.` or `#`, and `"` at its end. Each is its own attribute, as `.foo(class="bar")` makes two class attributes anyway (the Vue plugin of vuejs/language-tools ignores the duplicate).
   - The parentheses, the commas and the quotes of a name of an attribute list are spaces, and so is the `!` of `!=`, so that the name is the name.
-  - A value that is one string or template literal is in quotes that are not in it: its own, or else `"`, or else `'`. With both in it, its `"` are `'`, so that the value ends where the literal does.
+  - A value that is one string or template literal is in quotes that are not in it: its own, or else `"`, or else `'`. With both in it, its `"` are `'`, so that the value ends where the literal does. The `\` of a line continuation in it is a space, so that the value as an expression of Vue has no invalid char.
   - A comment, `//-` too, is `<!--` for its `//` and `-->` at its end, for the directive comments of Vue, such as `@vue-ignore`.
 - Conditionals, loops, mixins and code add the markup inside them: every branch, once. Doctypes, includes, extends and filters add none.
 

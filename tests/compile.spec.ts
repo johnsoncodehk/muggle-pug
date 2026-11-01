@@ -136,9 +136,11 @@ describe('html', () => {
 		expect(html('div(a=b c="x" + y d=`${`e`}`)')).toBe('<div a=b c="x" + y d=`${`e`}` />');
 	});
 
-	it('keeps the line continuations of a multiline value, also with CRLF line ends', () => {
+	it('makes the backslash of a line continuation a space, one char for one, also with CRLF line ends', () => {
 		const source = ['div(', `  :class="[ \\`, `    'a', \\`, `  ]"`, ') Foo'].join('\r\n');
-		expect(html(source)).toBe(`<div \r\n  :class="[ \\\r\n    'a', \\\r\n  ]"\r\n >Foo</div>`);
+		expect(html(source)).toBe(`<div \r\n  :class="[  \r\n    'a',  \r\n  ]"\r\n >Foo</div>`);
+		expect(ranges(source)).toContain(`"\\\\"->" "`);
+		expect(html('p(a=`b \\\nc` d="e \\\rf" g="h \\i")')).toBe('<p a="b  \nc" d="e  \rf" g="h \\i" />');
 	});
 });
 
