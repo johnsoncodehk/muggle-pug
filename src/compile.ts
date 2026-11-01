@@ -33,7 +33,6 @@ interface PugError {
 }
 
 const filename = 'file.pug';
-const lineStartTokens = new Set(['newline', 'indent', 'outdent', ':']);
 
 /**
  * Compiles pug to HTML pieces, which map to the pug code.
@@ -159,7 +158,7 @@ export function compile(pugCode: string): CompileResult {
 		for (let i = 0; i < tokens.length; i++) {
 			const token = tokens[i]!;
 			const prevToken = tokens[i - 1];
-			if (token.type === 'tag' || !prevToken || lineStartTokens.has(prevToken.type)) {
+			if (token.type === 'tag' || !prevToken || startsTag(prevToken.type)) {
 				tagStart = offsetAt(token.loc.start);
 			}
 			if (token.type !== 'class' && token.type !== 'id' && token.type !== 'start-attributes') {
@@ -201,6 +200,11 @@ export function compile(pugCode: string): CompileResult {
 
 		return startTags;
 	}
+}
+
+/** Whether the token after a token of `type` starts a tag: at the start of a line, or after the `:` of `a: b`. */
+function startsTag(type: pugLex.LexTokenType) {
+	return type === 'newline' || type === 'indent' || type === 'outdent' || type === ':';
 }
 
 /** `code` of an attribute as HTML: a template literal value quoted, and a ` \` line continuation a comment. */
