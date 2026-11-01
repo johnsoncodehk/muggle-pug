@@ -35,28 +35,27 @@ function ranges(source: string) {
 
 describe('html', () => {
 	it.each([
-		['div', '<div></div>'],
+		['div', '<div/>'],
 		['div text', '<div>text</div>'],
 		['div\n  p x\n  span {{ a }}', '<div><p>x</p><span>{{ a }}</span></div>'],
 		['a(href="/" disabled) link', '<a href="/" disabled >link</a>'],
 		['a(href="/", title=\'t\') link', '<a href="/"  title=\'t\' >link</a>'],
-		['div(\n  a="1"\n  b\n)', '<div \n  a="1"\n  b\n >'.concat('</div>')],
-		['p(v-if="ok")\np(v-else)', '<p v-if="ok" ></p><p v-else ></p>'],
+		['div(\n  a="1"\n  b\n)', '<div \n  a="1"\n  b\n />'],
+		['p(v-if="ok")\np(v-else)', '<p v-if="ok" /><p v-else />'],
 		['template(#default="{ a }")\n  | {{ a }}', '<template #default="{ a }" >{{ a }}</template>'],
-		['div(.prop="x")', '<div .prop="x" ></div>'],
-		['a(href!="/")', '<a href ="/" ></a>'],
-		['div(\'(click)\'="go")', '<div  (click) ="go" ></div>'],
-		['table: tr: td: input(v-model="name")', '<table><tr><td><input v-model="name" ></td></tr></table>'],
-		['input\nimg(src="a")\nbr/\nfoo/', '<input><img src="a" ><br/><foo/>'],
+		['div(.prop="x")', '<div .prop="x" />'],
+		['a(href!="/")', '<a href ="/" />'],
+		['div(\'(click)\'="go")', '<div  (click) ="go" />'],
+		['table: tr: td: input(v-model="name")', '<table><tr><td><input v-model="name" /></td></tr></table>'],
+		['input\nimg(src="a")\nbr/\nfoo/', '<input/><img src="a" /><br /><foo />'],
 		['div #[span x] y', '<div><span>x</span> y</div>'],
 		['p.\n  hello <b>\n  world', '<p >hello <b>\nworld</p>'],
 		['p\n  | a\n  | b', '<p>a\nb</p>'],
-		['p \\#{a} #{b}', '<p>#{a} </p>'],
+		['p \\#{a} #{b}', '<p>\\#{a} </p>'],
 		['div <span>x</span>\n<hr>', '<div><span>x</span></div><hr>'],
-		['// note\n//- hidden\ndiv', '<!-- note--><div></div>'],
+		['// note\n//- @vue-ignore\ndiv', '<!-- note--><!-- @vue-ignore--><div/>'],
 		['//\n  a\n  b', '<!--a\nb-->'],
-		['doctype html\nhtml', '<!DOCTYPE html><html></html>'],
-		['doctype\nhtml', '<!DOCTYPE html><html></html>'],
+		['doctype html\nhtml', '<html/>'],
 	])('%j', (source, expected) => {
 		expect(html(source)).toBe(expected);
 	});
@@ -89,29 +88,28 @@ describe('html', () => {
 		expect(html(source)).toBe('<p>a</p><p>b</p><p>c</p><li></li><i>1</i><i>2</i><b>m</b><u>in</u><p></p>');
 	});
 
-	it('makes adjacent class literals one attribute, and a class attribute another', () => {
-		expect(html('.a.b-c(class="d").e#f')).toBe('<div class="a b-c" class="d"  class="e" id="f"></div>');
+	it('makes each class literal a class attribute', () => {
+		expect(html('.a.b-c(class="d").e#f')).toBe('<div class="a" class="b-c" class="d"  class="e" id="f"/>');
 	});
 
-	it('decodes the escapes of a string literal', () => {
-		expect(html(`div(title="a \\"b\\"" alt='it\\'s' :a="'\\x41\\u0042\\u{43}\\n'")`))
-			.toBe(`<div title="a &quot;b&quot;" alt='it&#39;s' :a="'ABC\n'" ></div>`);
+	it('keeps a string or template literal value as it is, in quotes that it does not have in it', () => {
+		expect(html(`div(a="b \\"c\\"" d='e\\'s' :f="'\\x41\\\\'")`))
+			.toBe(`<div a='b \\"c\\"' d="e\\'s" :f="'\\x41\\\\'" />`);
+		expect(html('div(a=`b "c"` d=`${e} f` :g=`{\n  h: 1 }`)')).toBe('<div a=\'b "c"\' d="${e} f" :g="{\n  h: 1 }" />');
+		expect(ranges('p(a=`b`)')).toEqual(['""->"<"', 'p', '"("->" "', 'a=', '"`"->"\\""', 'b', '"`"->"\\""', '")"->" "', '""->"/>"']);
 	});
 
-	it('quotes a template literal without `${` with `"`, its `"` a character reference', () => {
-		expect(html('div(a=`b "c" \'d\' \\`` :e=`{\n  f: 1 }`)'))
-			.toBe('<div a="b &quot;c&quot; \'d\' `" :e="{\n  f: 1 }" ></div>');
-		expect(ranges('p(a=`b`)')).toEqual(['""->"<"', 'p', '"("->" "', 'a=', '"`"->"\\""', 'b', '"`"->"\\""', '")"->" "', '""->">"', '""->"</"', 'p', '""->">"']);
+	it('swaps the `"` of a value that has both quotes in it for `\'`, one char for one', () => {
+		expect(html(`div(a="b \\"c\\" 'd'" e=\`"f" 'g'\`)`)).toBe(`<div a="b \\'c\\' 'd'" e="'f' 'g'" />`);
 	});
 
-	it('keeps code that is not a string literal', () => {
-		expect(html('div(a=b c="x" + y d=`${e}`)')).toBe('<div a=b c="x" + y d=`${e}` ></div>');
+	it('keeps code that is not a single literal', () => {
+		expect(html('div(a=b c="x" + y d=`${`e`}`)')).toBe('<div a=b c="x" + y d=`${`e`}` />');
 	});
 
-	it('removes the line continuations of a multiline value, also with CRLF line ends', () => {
+	it('keeps the line continuations of a multiline value, also with CRLF line ends', () => {
 		const source = ['div(', `  :class="[ \\`, `    'a', \\`, `  ]"`, ') Foo'].join('\r\n');
-		expect(html(source)).toBe(`<div \r\n  :class="[     'a',   ]"\r\n >Foo</div>`);
-		expect(ranges(source)).toContain(`"\\\\\\r\\n"->""`);
+		expect(html(source)).toBe(`<div \r\n  :class="[ \\\r\n    'a', \\\r\n  ]"\r\n >Foo</div>`);
 	});
 });
 
@@ -190,7 +188,6 @@ describe('pieces', () => {
 		const source = 'div\n  em(v-if="a" v-for="n in b")\n';
 		const offsets = templateOffsets(source);
 		const text = html(source);
-		expect(offsets[text.indexOf('</em>') + 5]).toBe(source.indexOf(')') + 1);
 		expect(offsets[text.length]).toBe(source.indexOf(')') + 1);
 	});
 
@@ -218,7 +215,7 @@ describe('pieces', () => {
 describe('templates whose every line is indented', () => {
 	it('compile as without the shared indentation, at the offsets of the template', () => {
 		const source = '\n  div\n    p(a="b") x\n\n  span\n';
-		expect(html(source)).toBe('<div><p a="b" >x</p></div><span></span>');
+		expect(html(source)).toBe('<div><p a="b" >x</p></div><span/>');
 		expect(compile(source).error).toBeUndefined();
 		expect(ranges(source)).toContain('a="b"');
 		const offsets = templateOffsets(source);
@@ -256,27 +253,41 @@ describe('errors', () => {
 		const source = 'div(a="1" a="2")\nspan';
 		const { error } = compile(source);
 		expect(error).toMatchObject({ code: 'PUG:DUPLICATE_ATTRIBUTE', offset: 10, line: 0, column: 10 });
-		expect(html(source)).toBe('<span></span>');
+		expect(html(source)).toBe('<span/>');
 	});
 
 	it('report an error of an indented template at its offset in the template', () => {
 		const source = '  div\n    p(a=)\n  span';
 		const { error } = compile(source);
 		expect(error).toMatchObject({ code: 'PUG:SYNTAX_ERROR', offset: source.indexOf(')'), line: 1, column: 8 });
-		expect(html(source)).toBe('<div></div><span></span>');
+		expect(html(source)).toBe('<div/><span/>');
 	});
 
 	it('leave out each line that pug fails on, one at a time', () => {
 		const source = 'div\n  p(a=)\n  i(b=)\n  span';
 		const { error } = compile(source);
 		expect(error).toMatchObject({ code: 'PUG:SYNTAX_ERROR', line: 1 });
-		expect(html(source)).toBe('<div><span></span></div>');
+		expect(html(source)).toBe('<div><span/></div>');
 	});
 
 	it('keep the lines before an error of indentation', () => {
 		const source = 'div\n p\n   a\n  b';
 		expect(compile(source).error).toMatchObject({ code: 'PUG:INCONSISTENT_INDENTATION', line: 3 });
-		expect(html(source)).toBe('<div><p><a></a></p></div>');
+		expect(html(source)).toBe('<div><p><a/></p></div>');
+	});
+
+	it('report what pug throws for a template that it fails to read, where it stops', () => {
+		expect(compile('div\n  p#')).toMatchObject({ error: { code: 'TypeError', offset: 7, line: 1, column: 3 } });
+		expect(html('div\n  p#')).toBe('<div/>');
+		const source = 'div\n  p&attributes\n  span';
+		expect(compile(source)).toMatchObject({ error: { code: 'ERR_ASSERTION', offset: 7, line: 1, column: 3 } });
+		expect(html(source)).toBe('<div><span/></div>');
+	});
+
+	it('give pug blank lines without their spaces and tabs', () => {
+		const source = 'div\n\t\n  p\n  ';
+		expect(compile(source).error).toBeUndefined();
+		expect(html(source)).toBe('<div><p/></div>');
 	});
 
 	it('are none for an empty template', () => {

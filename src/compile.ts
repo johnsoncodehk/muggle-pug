@@ -1,7 +1,7 @@
 import type { Piece } from 'muggle-string';
 import lex from 'pug-lexer';
 import parse from 'pug-parser';
-import type { Attribute, Block, BlockComment, Comment, Doctype, Node, Tag, Text } from './ast.js';
+import type { Attribute, Block, BlockComment, Comment, Node, Tag, Text } from './ast.js';
 
 export interface CompileResult {
 	/**
@@ -23,11 +23,11 @@ export interface CompileResult {
 }
 
 export interface CompileError {
-	/** pug's code, such as `PUG:NO_END_BRACKET`. */
+	/** pug's code, such as `PUG:NO_END_BRACKET`, or the code or name of another error that pug throws, such as `TypeError`. */
 	code: string;
 	/** pug's message, without its code frame. */
 	message: string;
-	/** Where pug reports the error, as an offset of the template. */
+	/** Where pug reports the error, as an offset of the template; where it stops, for an error without a position. */
 	offset: number;
 	/** The 0-based line of `offset`. */
 	line: number;
@@ -40,35 +40,48 @@ interface Lines {
 	starts: number[];
 	/** The offset of the end of each line, before its line break. */
 	ends: number[];
-	/** The length of the leading whitespace of each line. */
+	/** The length of the spaces and tabs at the start of each line. */
 	indents: number[];
 }
 
 interface Emitter {
 	source: string;
 	lines: Lines;
-	/** The end of the source text that starts at an offset: of a text, an attribute, a doctype, or the head of a tag. */
+	/** The end of the source text that starts at an offset: of a text, an attribute, or the head of a tag. */
 	ends: Map<number, number>;
 	pieces: Piece[];
 }
 
+/** pug's error, with a 1-based line and column. */
+interface PugError {
+	code: string;
+	msg: string;
+	line: number;
+	column: number;
+}
+
 /**
- * Compiles a pug template to HTML. Every markup node written in the template is in the HTML once, as written:
- * conditionals, loops, mixins and code add the markup inside them without being evaluated, and includes, extends and
- * filters, whose content is not markup of the template, add none.
+ * Compiles a pug template to HTML for tools, not as pug renders it: HTML that an HTML parser reads as the elements,
+ * attributes, text and comments written in the template, each from the template text where it can be. Every markup
+ * node is in the HTML once: conditionals, loops, mixins and code add the markup inside them without being evaluated,
+ * and doctypes, includes, extends and filters add none.
  *
  * pug is given the template without the indentation that all its lines share, as Vue gives a pug template to pug.
  */
 export function compile(source: string): CompileResult {
 	const lines = scanLines(source);
+	// the lines that pug is given empty: blank lines, and the lines that it fails on
+	const emptied = new Uint8Array(lines.starts.length);
 	let shared = Infinity;
 	for (let i = 0; i < lines.starts.length; i++) {
-		if (lines.indents[i]! < lines.ends[i]! - lines.starts[i]!) {
+		if (lines.indents[i] === lines.ends[i]! - lines.starts[i]!) {
+			emptied[i] = 1;
+		}
+		else {
 			shared = Math.min(shared, lines.indents[i]!);
 		}
 	}
 	const shifts = lines.indents.map(indent => Math.min(indent, shared));
-	const emptied = new Uint8Array(lines.starts.length);
 	let error: CompileError | undefined;
 
 	while (true) {
@@ -88,15 +101,11 @@ export function compile(source: string): CompileResult {
 			tokens = lexer.getTokens();
 		}
 		catch (thrown) {
-			const pugError = asPugError(thrown);
-			pugError.column += shifts[pugError.line - 1] ?? 0;
-			error ??= toCompileError(source, lines, pugError);
 			// the token that failed starts after the last one lexed
-			const last = lexer.tokens[lexer.tokens.length - 1];
-			const after = last
-				? offsetAt(lines, last.loc.end.line, last.loc.end.column + shifts[last.loc.end.line - 1]!)
-				: 0;
-			emptyLineAt(source, lines, emptied, after, thrown);
+			const last = lexer.tokens[lexer.tokens.length - 1]?.loc.end;
+			const after = last ? offsetAt(lines, last.line, last.column + shifts[last.line - 1]!) : 0;
+			error ??= toCompileError(source, lines, thrown, after, shifts);
+			emptyLineAt(source, lines, emptied, after);
 			continue;
 		}
 
@@ -135,7 +144,6 @@ export function compile(source: string): CompileResult {
 					break;
 				case 'text':
 				case 'text-html':
-				case 'doctype':
 					ends.set(startOffset, endOffset);
 					head = -1;
 					break;
@@ -149,9 +157,9 @@ export function compile(source: string): CompileResult {
 			ast = parse(tokens) as Block;
 		}
 		catch (thrown) {
-			const pugError = asPugError(thrown);
-			error ??= toCompileError(source, lines, pugError);
-			emptyLineAt(source, lines, emptied, offsetAt(lines, pugError.line, pugError.column), thrown);
+			const parseError = toCompileError(source, lines, thrown, source.length);
+			error ??= parseError;
+			emptyLineAt(source, lines, emptied, parseError.offset);
 			continue;
 		}
 
@@ -184,25 +192,28 @@ function scanLines(source: string): Lines {
 	return lines;
 }
 
-interface PugError {
-	code: string;
-	msg: string;
-	line: number;
-	column: number;
-}
-
-function asPugError(thrown: unknown): PugError {
-	const error = thrown as Partial<PugError> | null;
-	if (typeof error?.code !== 'string' || !error.code.startsWith('PUG:')) {
-		throw thrown;
+/**
+ * The error that pug throws, with its column in the template if it is in the input that is given to pug without
+ * `shifts`. An error without a position, of a bug of pug, is at `at`.
+ */
+function toCompileError(source: string, lines: Lines, thrown: unknown, at: number, shifts?: number[]): CompileError {
+	const pugError = thrown as Partial<PugError> | null;
+	let offset = at;
+	if (typeof pugError?.line === 'number' && typeof pugError.column === 'number') {
+		offset = offsetAt(lines, pugError.line, pugError.column + (shifts?.[pugError.line - 1] ?? 0));
 	}
-	return error as PugError;
-}
-
-function toCompileError(source: string, lines: Lines, error: PugError): CompileError {
-	const offset = Math.min(offsetAt(lines, error.line, error.column), source.length);
-	const line = Math.min(error.line, lines.starts.length) - 1;
-	return { code: error.code, message: error.msg, offset, line, column: offset - lines.starts[line]! };
+	offset = Math.min(offset, source.length);
+	let line = 0;
+	while (line + 1 < lines.starts.length && lines.starts[line + 1]! <= offset) {
+		line++;
+	}
+	return {
+		code: typeof pugError?.code === 'string' ? pugError.code : (thrown as Error).name,
+		message: typeof pugError?.msg === 'string' ? pugError.msg : (thrown as Error).message,
+		offset,
+		line,
+		column: offset - lines.starts[line]!,
+	};
 }
 
 /** The offset of a 1-based line and column of pug. */
@@ -211,32 +222,32 @@ function offsetAt(lines: Lines, line: number, column: number) {
 }
 
 /**
- * Empties the line where pug failed at `offset`: the line of the first char after it that is not whitespace, or,
- * when only whitespace follows, of the last such char before it.
+ * Empties the line where pug failed at `offset`: the first line not empty at or after it, or, when only whitespace
+ * follows, the last one before it. pug accepts a template of empty lines, so it accepts what is left in the end.
  */
-function emptyLineAt(source: string, lines: Lines, emptied: Uint8Array, offset: number, thrown: unknown) {
+function emptyLineAt(source: string, lines: Lines, emptied: Uint8Array, offset: number) {
 	let line = 0;
 	while (line + 1 < lines.starts.length && lines.starts[line + 1]! <= offset) {
 		line++;
 	}
 	for (let i = line; i < lines.starts.length; i++) {
-		if (!emptied[i] && hasCode(source, i === line ? Math.max(offset, lines.starts[i]!) : lines.starts[i]!, lines.ends[i]!)) {
+		if (!emptied[i] && (i > line || hasCode(source, offset, lines.ends[i]!))) {
 			emptied[i] = 1;
 			return;
 		}
 	}
 	for (let i = line; i >= 0; i--) {
-		if (!emptied[i] && lines.indents[i]! < lines.ends[i]! - lines.starts[i]!) {
+		if (!emptied[i]) {
 			emptied[i] = 1;
 			return;
 		}
 	}
-	throw thrown;
 }
 
 function hasCode(source: string, from: number, to: number) {
 	for (let i = from; i < to; i++) {
-		if (!isSpace(source.charCodeAt(i))) {
+		const char = source.charCodeAt(i);
+		if (char !== 32 && char !== 9) {
 			return true;
 		}
 	}
@@ -264,8 +275,6 @@ function emitNode(emitter: Emitter, node: Node): number {
 		case 'Comment':
 		case 'BlockComment':
 			return emitComment(emitter, node);
-		case 'Doctype':
-			return emitDoctype(emitter, node);
 		case 'Conditional':
 			return Math.max(
 				emitNodes(emitter, node.consequent.nodes),
@@ -280,12 +289,11 @@ function emitNode(emitter: Emitter, node: Node): number {
 		case 'Case':
 		case 'EachOf':
 		case 'While':
-			return emitNodes(emitter, node.block.nodes);
 		case 'When':
 		case 'Code':
-			return node.block ? emitNodes(emitter, node.block.nodes) : -1;
 		case 'Mixin':
 			return node.block ? emitNodes(emitter, node.block.nodes) : -1;
+		case 'Doctype':
 		case 'MixinBlock':
 		case 'YieldBlock':
 		case 'Include':
@@ -296,27 +304,23 @@ function emitNode(emitter: Emitter, node: Node): number {
 	}
 }
 
+/** Emits an element, closed by `/>` without content, so that a void element needs no end tag. */
 function emitTag(emitter: Emitter, tag: Tag) {
 	const { pieces, lines } = emitter;
 	const start = offsetAt(lines, tag.line, tag.column);
 	const headEnd = endAt(emitter, start);
 	pieces.push({ start, end: start, text: '<' });
-	let at = emitTagName(emitter, tag.name, start);
-	at = emitAttributes(emitter, tag.attrs, at);
-	if (tag.selfClosing) {
-		gap(emitter, at, headEnd - 1);
-		keep(emitter, headEnd - 1, headEnd);
-	}
-	else {
-		gap(emitter, at, headEnd);
+	const at = emitAttributes(emitter, tag.attrs, emitTagName(emitter, tag.name, start));
+	gap(emitter, at, headEnd);
+	if (!tag.block.nodes.length) {
+		pieces.push({ start: headEnd, end: headEnd, text: '/>' });
+		return headEnd;
 	}
 	pieces.push({ start: headEnd, end: headEnd, text: '>' });
 	const end = Math.max(headEnd, emitNodes(emitter, tag.block.nodes));
-	if (!tag.selfClosing && !isVoidElement(tag.name)) {
-		pieces.push({ start: end, end, text: '</' });
-		emitTagName(emitter, tag.name, start);
-		pieces.push({ start: end, end, text: '>' });
-	}
+	pieces.push({ start: end, end, text: '</' });
+	emitTagName(emitter, tag.name, start);
+	pieces.push({ start: end, end, text: '>' });
 	return end;
 }
 
@@ -332,47 +336,29 @@ function emitTagName(emitter: Emitter, name: string, start: number) {
 
 /**
  * Emits the attributes of a tag, from `at`, the end of what is emitted before them, and returns the end of the last.
- * Adjacent class literals, such as `.a.b`, are one class attribute; a class attribute and a class literal are two.
+ * A class or id literal, such as `.a` or `#b`, is an attribute whose quoted value is the name after its `.` or `#`.
  */
 function emitAttributes(emitter: Emitter, attrs: Attribute[], at: number) {
 	const { source, pieces, lines } = emitter;
-	let classEnd = -1;
 	for (const attr of attrs) {
 		const start = offsetAt(lines, attr.line, attr.column);
-		const first = source.charCodeAt(start);
-		const isClass = attr.name === 'class' && first === 46 /* . */;
-		if (classEnd !== -1 && !(isClass && start === classEnd)) {
-			pieces.push({ start: classEnd, end: classEnd, text: '"' });
-			classEnd = -1;
-		}
 		gap(emitter, at, start);
-		if (isClass || attr.name === 'id' && first === 35 /* # */) {
-			const end = start + (attr.val as string).length - 1;
-			if (classEnd === start) {
-				pieces.push({ start, end: start + 1, text: ' ' });
-			}
-			else {
-				pieces.push({ start, end: start, text: isClass ? ' class=' : ' id=' });
-				pieces.push({ start, end: start + 1, text: '"' });
-			}
-			keep(emitter, start + 1, end);
-			if (isClass) {
-				classEnd = end;
-			}
-			else {
-				pieces.push({ start: end, end, text: '"' });
-			}
-			at = end;
-			continue;
+		const first = source[start];
+		if (attr.name === 'class' && first === '.' || attr.name === 'id' && first === '#') {
+			at = start + (attr.val as string).length - 1;
+			pieces.push({ start, end: start, text: ` ${attr.name}=` });
+			pieces.push({ start, end: start + 1, text: '"' });
+			keep(emitter, start + 1, at);
+			pieces.push({ start: at, end: at, text: '"' });
 		}
-		at = emitAttribute(emitter, attr, start);
-	}
-	if (classEnd !== -1) {
-		pieces.push({ start: classEnd, end: classEnd, text: '"' });
+		else {
+			at = emitAttribute(emitter, attr, start);
+		}
 	}
 	return at;
 }
 
+/** Emits an attribute of an attribute list, with its name unquoted and the `!` of `!=` left out. */
 function emitAttribute(emitter: Emitter, attr: Attribute, start: number) {
 	const { source } = emitter;
 	let nameEnd = start + attr.name.length;
@@ -380,7 +366,6 @@ function emitAttribute(emitter: Emitter, attr: Attribute, start: number) {
 		keep(emitter, start, nameEnd);
 	}
 	else {
-		// a quoted name
 		nameEnd += 2;
 		gap(emitter, start, start + 1);
 		keep(emitter, start + 1, nameEnd - 1);
@@ -395,7 +380,6 @@ function emitAttribute(emitter: Emitter, attr: Attribute, start: number) {
 	while (isSpace(source.charCodeAt(valueStart))) {
 		valueStart++;
 	}
-	// `!` of `!=`
 	gap(emitter, nameEnd, equals);
 	keep(emitter, equals, valueStart);
 	emitValue(emitter, valueStart, end);
@@ -403,92 +387,51 @@ function emitAttribute(emitter: Emitter, attr: Attribute, start: number) {
 }
 
 /**
- * Emits the JavaScript code of an attribute value. A string literal, or a template literal without `${`, is the
- * value: in the quote of the literal, `"` for a template literal, with its escapes decoded and that quote in it as a
- * character reference. Other code is kept as it is.
+ * Emits the JavaScript code of an attribute value as it is. A single string or template literal is an HTML value in
+ * quotes that it has not in it: its own, or else `"`, or else `'`; with both in it, its `"` are `'`. So an HTML
+ * parser reads the value to its end, as one value.
  */
 function emitValue(emitter: Emitter, start: number, end: number) {
 	const { source, pieces } = emitter;
 	const quote = source[start]!;
-	if (
-		(quote !== '"' && quote !== "'" && quote !== '`')
-		|| end - start < 2
-		|| source[end - 1] !== quote
-		|| !isStringLiteral(source, start, end, quote)
-	) {
+	if ((quote !== '"' && quote !== "'" && quote !== '`') || end - start < 2 || source[end - 1] !== quote) {
 		keep(emitter, start, end);
 		return;
 	}
-	const htmlQuote = quote === '`' ? '"' : quote;
-	const reference = htmlQuote === '"' ? '&quot;' : '&#39;';
-	put(emitter, start, start + 1, htmlQuote);
-	let kept = start + 1;
-	for (let i = start + 1; i < end - 1; i++) {
-		let [length, decoded] = [1, source[i]!];
-		if (decoded === '\\') {
-			[length, decoded] = decodeEscape(source, i);
-		}
-		else if (decoded !== htmlQuote) {
-			continue;
-		}
-		keep(emitter, kept, i);
-		pieces.push({ start: i, end: i + length, text: decoded === htmlQuote ? reference : decoded });
-		i += length - 1;
-		kept = i + 1;
-	}
-	keep(emitter, kept, end - 1);
-	put(emitter, end - 1, end, htmlQuote);
-}
-
-function isStringLiteral(source: string, start: number, end: number, quote: string) {
+	let hasDouble = false;
+	let hasSingle = false;
 	for (let i = start + 1; i < end - 1; i++) {
 		const char = source[i];
 		if (char === '\\') {
+			hasDouble ||= source[i + 1] === '"';
+			hasSingle ||= source[i + 1] === "'";
 			i++;
 		}
-		else if (char === quote || quote === '`' && char === '$' && source[i + 1] === '{') {
-			return false;
+		else if (char === quote) {
+			keep(emitter, start, end);
+			return;
+		}
+		else {
+			hasDouble ||= char === '"';
+			hasSingle ||= char === "'";
 		}
 	}
-	return true;
-}
-
-/** The length and the value of the escape sequence of a JavaScript string at `at`. */
-function decodeEscape(source: string, at: number): [length: number, decoded: string] {
-	const char = source[at + 1]!;
-	switch (char) {
-		case '\r':
-			return [source[at + 2] === '\n' ? 3 : 2, ''];
-		case '\n':
-		case '\u2028':
-		case '\u2029':
-			return [2, ''];
-		case 'n':
-			return [2, '\n'];
-		case 't':
-			return [2, '\t'];
-		case 'r':
-			return [2, '\r'];
-		case 'b':
-			return [2, '\b'];
-		case 'f':
-			return [2, '\f'];
-		case 'v':
-			return [2, '\v'];
-		case '0':
-			return [2, '\0'];
-		case 'x':
-			return [4, String.fromCharCode(parseInt(source.slice(at + 2, at + 4), 16))];
-		case 'u': {
-			if (source[at + 2] === '{') {
-				const close = source.indexOf('}', at + 3);
-				return [close + 1 - at, String.fromCodePoint(parseInt(source.slice(at + 3, close), 16))];
-			}
-			return [6, String.fromCharCode(parseInt(source.slice(at + 2, at + 6), 16))];
+	const htmlQuote = quote === '"' && !hasDouble || quote === "'" && !hasSingle
+		? quote
+		: hasDouble && !hasSingle
+		? "'"
+		: '"';
+	put(emitter, start, start + 1, htmlQuote);
+	let kept = start + 1;
+	for (let i = start + 1; i < end - 1; i++) {
+		if (source[i] === htmlQuote) {
+			keep(emitter, kept, i);
+			pieces.push({ start: i, end: i + 1, text: "'" });
+			kept = i + 1;
 		}
-		default:
-			return [2, char];
 	}
+	keep(emitter, kept, end - 1);
+	put(emitter, end - 1, end, htmlQuote);
 }
 
 function emitText(emitter: Emitter, text: Text) {
@@ -498,44 +441,27 @@ function emitText(emitter: Emitter, text: Text) {
 	}
 	if (text.val === '\n') {
 		// pug's line break between two lines of text, at the start of the second
-		const lineStart = lines.starts[text.line - 1]!;
-		put(emitter, lines.ends[text.line - 2]!, lineStart, '\n');
+		keep(emitter, lines.ends[text.line - 2]!, lines.starts[text.line - 1]!);
 		return -1;
 	}
 	const start = offsetAt(lines, text.line, text.column);
 	const end = endAt(emitter, start);
-	put(emitter, start, end, text.val);
+	keep(emitter, start, end);
 	return end;
 }
 
+/** Emits a comment, `//-` too, for the directive comments of Vue, such as `@vue-ignore`. */
 function emitComment(emitter: Emitter, comment: Comment | BlockComment) {
-	if (!comment.buffer) {
-		return -1;
-	}
 	const { pieces } = emitter;
 	const start = offsetAt(emitter.lines, comment.line, comment.column);
-	pieces.push({ start, end: start + 2, text: '<!--' });
-	let end = start + 2 + comment.val.length;
-	keep(emitter, start + 2, end);
+	const valStart = start + (comment.buffer ? 2 : 3);
+	pieces.push({ start, end: valStart, text: '<!--' });
+	let end = valStart + comment.val.length;
+	keep(emitter, valStart, end);
 	if (comment.type === 'BlockComment') {
 		end = Math.max(end, emitNodes(emitter, comment.block.nodes));
 	}
 	pieces.push({ start: end, end, text: '-->' });
-	return end;
-}
-
-function emitDoctype(emitter: Emitter, doctype: Doctype) {
-	const { pieces } = emitter;
-	const start = offsetAt(emitter.lines, doctype.line, doctype.column);
-	const end = endAt(emitter, start);
-	pieces.push({ start, end: start + 7, text: '<!DOCTYPE' });
-	if (doctype.val) {
-		keep(emitter, start + 7, end);
-	}
-	else {
-		pieces.push({ start: end, end, text: ' html' });
-	}
-	pieces.push({ start: end, end, text: '>' });
 	return end;
 }
 
@@ -591,25 +517,4 @@ function gap(emitter: Emitter, start: number, end: number) {
 
 function isSpace(char: number) {
 	return char === 32 || char === 9 || char === 10 || char === 13 || char === 12;
-}
-
-function isVoidElement(name: string) {
-	switch (name) {
-		case 'area':
-		case 'base':
-		case 'br':
-		case 'col':
-		case 'embed':
-		case 'hr':
-		case 'img':
-		case 'input':
-		case 'link':
-		case 'meta':
-		case 'param':
-		case 'source':
-		case 'track':
-		case 'wbr':
-			return true;
-	}
-	return false;
 }
