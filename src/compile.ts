@@ -154,7 +154,8 @@ export function compile(source: string): CompileResult {
 
 		let ast: Block;
 		try {
-			ast = parse(tokens) as Block;
+			// the name that pug-parser gives the template in its warnings
+			ast = parse(tokens, { filename: 'template.pug' }) as Block;
 		}
 		catch (thrown) {
 			const parseError = toCompileError(source, lines, thrown, source.length);
@@ -497,22 +498,23 @@ function keep({ pieces }: Emitter, start: number, end: number) {
 	}
 }
 
-/** Emits the template text of `start`..`end` between parts of a tag, with a space for each char that is not whitespace. */
+/** Emits the template text of `start`..`end` between parts of a tag, with its chars that are not whitespace as spaces. */
 function gap(emitter: Emitter, start: number, end: number) {
 	const { source } = emitter;
-	let i = start;
-	while (i < end && isSpace(source.charCodeAt(i))) {
-		i++;
+	while (start < end) {
+		const space = isSpace(source.charCodeAt(start));
+		let to = start + 1;
+		while (to < end && isSpace(source.charCodeAt(to)) === space) {
+			to++;
+		}
+		if (space) {
+			keep(emitter, start, to);
+		}
+		else {
+			emitter.pieces.push({ start, end: to, text: ' '.repeat(to - start) });
+		}
+		start = to;
 	}
-	if (i === end) {
-		keep(emitter, start, end);
-		return;
-	}
-	let text = source.slice(start, i);
-	for (; i < end; i++) {
-		text += isSpace(source.charCodeAt(i)) ? source[i] : ' ';
-	}
-	emitter.pieces.push({ start, end, text });
 }
 
 function isSpace(char: number) {
