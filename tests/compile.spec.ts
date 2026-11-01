@@ -57,7 +57,7 @@ describe('the examples of the readme', () => {
 			(from: typeof source) => from.name,
 		);
 		expect(text).toBe('<div class="foo">hello</div>');
-		expect(map.mappings).toBe('AAAA,CAAA,GAAG,CAAA,KAAA,CAAA,CAAC,GAAG,CAAA,CAAC,KAAK');
+		expect(map.mappings).toBe('AAAA,CAAA,GAAG,CAAA,KAAA,CAAA,CAAC,GAAG,CAAA,CAAC,K;');
 		expect(map.names).toEqual([]);
 	});
 });
@@ -164,11 +164,12 @@ describe('pieces', () => {
 			'")"->" "',
 			'""->">"',
 			'x',
-			'""->"</div>"',
+			'</div>',
+			'',
 		]);
 	});
 
-	it('cover every char of the HTML, within the template', () => {
+	it('are ranges within the template, and end tags', () => {
 		const sources = [
 			'div#app.a.b(class="x" :t="m" href!=\'y\' disabled)\n  span {{ c }} #[b x] #{y}\n  p.\n    hi\n    yo\n  | pipe',
 			'\n  div\n    p x\n',
@@ -177,8 +178,10 @@ describe('pieces', () => {
 		];
 		for (const source of sources) {
 			for (const piece of compile(source).pieces) {
-				expect(typeof piece).toBe('object');
-				if (typeof piece === 'object') {
+				if (typeof piece === 'string') {
+					expect(piece).toMatch(/^<\/[\w-]+>$/);
+				}
+				else {
 					expect(0 <= piece.start && piece.start <= piece.end && piece.end <= source.length).toBe(true);
 				}
 			}
@@ -224,9 +227,8 @@ describe('pieces', () => {
 		expect(offsets[text.length]).toBe(source.indexOf(')') + 1);
 	});
 
-	it('give an end tag a position, not the range of the name of the tag', () => {
-		expect(compile('span x').pieces.filter(piece => typeof piece === 'object' && piece.text === undefined))
-			.toEqual([{ start: 0, end: 4 }, { start: 5, end: 6 }]);
+	it('give an end tag no range, and then the end of the element', () => {
+		expect(compile('span x').pieces.slice(-4)).toEqual([{ start: 4, end: 4, text: '>' }, { start: 5, end: 6 }, '</span>', { start: 6, end: 6 }]);
 	});
 });
 

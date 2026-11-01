@@ -6,8 +6,8 @@ import type { Attribute, Block, BlockComment, Comment, Node, Tag, Text } from '.
 export interface CompileResult {
 	/**
 	 * The HTML, as ranges of the template. A range without `text` keeps the template text at `start`..`end`; a range
-	 * with `text` is HTML that stands for `start`..`end`, such as `<` at the start of a tag, `>` and `</div>` at the
-	 * end of its head and of the element, or `"` in place of the `.` of a class literal.
+	 * with `text` is HTML that stands for `start`..`end`, such as `<` at the start of a tag, `>` at the end of its
+	 * head, or `"` in place of the `.` of a class literal. A string, an end tag, stands for no range.
 	 */
 	pieces: Piece[];
 	/**
@@ -318,8 +318,9 @@ function emitTag(emitter: Emitter, tag: Tag) {
 	}
 	pieces.push({ start: headEnd, end: headEnd, text: '>' });
 	const end = Math.max(headEnd, emitNodes(emitter, tag.block.nodes));
-	// not the range of the name, which would give a tool that edits both names of an element one range twice
-	pieces.push({ start: end, end, text: `</${tag.name}>` });
+	// stands for no range, which a tool would edit or show twice, as the name or an empty range at the end, and then
+	// the end as an empty range
+	pieces.push(`</${tag.name}>`, { start: end, end });
 	return end;
 }
 
