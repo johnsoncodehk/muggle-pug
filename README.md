@@ -34,8 +34,8 @@ The HTML is for tools, not what pug renders: an HTML parser reads it as the elem
 
 - Attribute values, text and code are the pug code, byte for byte. pug's `class="a" + b`, `` `${a}` `` or `'a\'b'` is code that only pug's runtime gives a value; here it stays code.
 - What is not the pug code is the least that makes the HTML read right, one char for one where it can be:
-  - `<`, `>`, `/>` and `</` at positions, and the name of an end tag as the range of the name of the tag. An element without content closes with `/>`, so that no void element has an end tag. An implicit `div` is at the position of the tag.
-  - A class or id literal, `.foo` or `#foo`, is ` class=` at its position, `"` for its `.` or `#`, and `"` at its end. Each is its own attribute, as `.foo(class="bar")` makes two class attributes anyway (the Vue plugin of vuejs/language-tools ignores the duplicate).
+  - `<`, `>`, `/>` and the end tag at positions. An element without content closes with `/>`, so that no void element has an end tag. An end tag is not the range of the name of the tag, or a tool that edits both names of an element, such as a rename, would edit the one range twice. An implicit `div` is at the position of the tag.
+  - A class or id literal, `.foo` or `#foo`, is ` class="` or ` id="` whose name and quote stand for its `.` or `#`, and `"` at its end. Each is its own attribute, as `.foo(class="bar")` makes two class attributes anyway (the Vue plugin of vuejs/language-tools ignores the duplicate).
   - The parentheses, the commas and the quotes of a name of an attribute list are spaces, and so is the `!` of `!=`, so that the name is the name.
   - A value that is one string or template literal is in quotes that are not in it: its own, or else `"`, or else `'`. With both in it, its `"` are `'`, so that the value ends where the literal does.
   - A comment, `//-` too, is `<!--` for its `//` and `-->` at its end, for the directive comments of Vue, such as `@vue-ignore`.
@@ -74,7 +74,7 @@ const { text, map } = renderWithSourceMap(
 console.log(text);
 // <div class="foo">hello</div>
 console.log(map.mappings);
-// AAAA,CAAA,GAAG,OAAA,CAAC,GAAG,CAAA,CAAC,KAAK,EAAb,GAAa
+// AAAA,CAAA,GAAG,CAAA,KAAA,CAAA,CAAC,GAAG,CAAA,CAAC,KAAK
 console.log(map.names);
 // [], as no HTML renames a name of the pug code
 ```

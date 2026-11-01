@@ -57,7 +57,7 @@ describe('the examples of the readme', () => {
 			(from: typeof source) => from.name,
 		);
 		expect(text).toBe('<div class="foo">hello</div>');
-		expect(map.mappings).toBe('AAAA,CAAA,GAAG,OAAA,CAAC,GAAG,CAAA,CAAC,KAAK,EAAb,GAAa');
+		expect(map.mappings).toBe('AAAA,CAAA,GAAG,CAAA,KAAA,CAAA,CAAC,GAAG,CAAA,CAAC,KAAK');
 		expect(map.names).toEqual([]);
 	});
 });
@@ -147,11 +147,15 @@ describe('pieces', () => {
 		expect(ranges('div#app.a(:b="c") x')).toEqual([
 			'""->"<"',
 			'div',
-			'""->" id="',
+			'""->" "',
+			'"#"->"id"',
+			'""->"="',
 			'"#"->"\\""',
 			'app',
 			'""->"\\""',
-			'""->" class="',
+			'""->" "',
+			'"."->"class"',
+			'""->"="',
 			'"."->"\\""',
 			'a',
 			'""->"\\""',
@@ -160,9 +164,7 @@ describe('pieces', () => {
 			'")"->" "',
 			'""->">"',
 			'x',
-			'""->"</"',
-			'div',
-			'""->">"',
+			'""->"</div>"',
 		]);
 	});
 
@@ -211,6 +213,8 @@ describe('pieces', () => {
 			offsets[match.index + match[0].length],
 		]);
 		expect(values).toEqual([[0, 4], [8, 12]]);
+		const name = text.indexOf('class');
+		expect([offsets[name], offsets[name + 5]]).toEqual([0, 1]);
 	});
 
 	it('end an element at the end of its last content', () => {
@@ -220,9 +224,9 @@ describe('pieces', () => {
 		expect(offsets[text.length]).toBe(source.indexOf(')') + 1);
 	});
 
-	it('map a close tag name to the name of the tag', () => {
+	it('give an end tag a position, not the range of the name of the tag', () => {
 		expect(compile('span x').pieces.filter(piece => typeof piece === 'object' && piece.text === undefined))
-			.toEqual([{ start: 0, end: 4 }, { start: 5, end: 6 }, { start: 0, end: 4 }]);
+			.toEqual([{ start: 0, end: 4 }, { start: 5, end: 6 }]);
 	});
 });
 

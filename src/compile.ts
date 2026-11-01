@@ -318,9 +318,8 @@ function emitTag(emitter: Emitter, tag: Tag) {
 	}
 	pieces.push({ start: headEnd, end: headEnd, text: '>' });
 	const end = Math.max(headEnd, emitNodes(emitter, tag.block.nodes));
-	pieces.push({ start: end, end, text: '</' });
-	emitTagName(emitter, tag.name, start);
-	pieces.push({ start: end, end, text: '>' });
+	// not the range of the name, which would give a tool that edits both names of an element one range twice
+	pieces.push({ start: end, end, text: `</${tag.name}>` });
 	return end;
 }
 
@@ -346,7 +345,10 @@ function emitAttributes(emitter: Emitter, attrs: Attribute[], at: number) {
 		const first = source[start];
 		if (attr.name === 'class' && first === '.' || attr.name === 'id' && first === '#') {
 			at = start + (attr.val as string).length - 1;
-			pieces.push({ start, end: start, text: ` ${attr.name}=` });
+			// the name and the opening quote both stand for the `.` or `#`
+			pieces.push({ start, end: start, text: ' ' });
+			pieces.push({ start, end: start + 1, text: attr.name });
+			pieces.push({ start, end: start, text: '=' });
 			pieces.push({ start, end: start + 1, text: '"' });
 			keep(emitter, start + 1, at);
 			pieces.push({ start: at, end: at, text: '"' });
