@@ -98,8 +98,14 @@ describe('html', () => {
 			.toBe(`<div title="a &quot;b&quot;" alt='it&#39;s' :a="'ABC\n'" ></div>`);
 	});
 
+	it('quotes a template literal without `${` with `"`, its `"` a character reference', () => {
+		expect(html('div(a=`b "c" \'d\' \\`` :e=`{\n  f: 1 }`)'))
+			.toBe('<div a="b &quot;c&quot; \'d\' `" :e="{\n  f: 1 }" ></div>');
+		expect(ranges('p(a=`b`)')).toEqual(['""->"<"', 'p', '"("->" "', 'a=', '"`"->"\\""', 'b', '"`"->"\\""', '")"->" "', '""->">"', '""->"</"', 'p', '""->">"']);
+	});
+
 	it('keeps code that is not a string literal', () => {
-		expect(html('div(a=b c="x" + y d=`e`)')).toBe('<div a=b c="x" + y d=`e` ></div>');
+		expect(html('div(a=b c="x" + y d=`${e}`)')).toBe('<div a=b c="x" + y d=`${e}` ></div>');
 	});
 
 	it('removes the line continuations of a multiline value, also with CRLF line ends', () => {

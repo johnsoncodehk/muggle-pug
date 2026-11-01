@@ -403,46 +403,50 @@ function emitAttribute(emitter: Emitter, attr: Attribute, start: number) {
 }
 
 /**
- * Emits the JavaScript code of an attribute value. A string literal is the value: its escapes are decoded, and its
- * quote in it is a character reference. Other code is kept as it is.
+ * Emits the JavaScript code of an attribute value. A string literal, or a template literal without `${`, is the
+ * value: in the quote of the literal, `"` for a template literal, with its escapes decoded and that quote in it as a
+ * character reference. Other code is kept as it is.
  */
 function emitValue(emitter: Emitter, start: number, end: number) {
 	const { source, pieces } = emitter;
-	const quote = source.charCodeAt(start);
+	const quote = source[start]!;
 	if (
-		(quote !== 34 /* " */ && quote !== 39 /* ' */)
+		(quote !== '"' && quote !== "'" && quote !== '`')
 		|| end - start < 2
-		|| source.charCodeAt(end - 1) !== quote
+		|| source[end - 1] !== quote
 		|| !isStringLiteral(source, start, end, quote)
 	) {
 		keep(emitter, start, end);
 		return;
 	}
-	let kept = start;
+	const htmlQuote = quote === '`' ? '"' : quote;
+	const reference = htmlQuote === '"' ? '&quot;' : '&#39;';
+	put(emitter, start, start + 1, htmlQuote);
+	let kept = start + 1;
 	for (let i = start + 1; i < end - 1; i++) {
-		if (source.charCodeAt(i) !== 92 /* \ */) {
+		let [length, decoded] = [1, source[i]!];
+		if (decoded === '\\') {
+			[length, decoded] = decodeEscape(source, i);
+		}
+		else if (decoded !== htmlQuote) {
 			continue;
 		}
-		const [length, decoded] = decodeEscape(source, i);
 		keep(emitter, kept, i);
-		pieces.push({
-			start: i,
-			end: i + length,
-			text: decoded.charCodeAt(0) === quote ? (quote === 34 ? '&quot;' : '&#39;') : decoded,
-		});
+		pieces.push({ start: i, end: i + length, text: decoded === htmlQuote ? reference : decoded });
 		i += length - 1;
 		kept = i + 1;
 	}
-	keep(emitter, kept, end);
+	keep(emitter, kept, end - 1);
+	put(emitter, end - 1, end, htmlQuote);
 }
 
-function isStringLiteral(source: string, start: number, end: number, quote: number) {
+function isStringLiteral(source: string, start: number, end: number, quote: string) {
 	for (let i = start + 1; i < end - 1; i++) {
-		const char = source.charCodeAt(i);
-		if (char === 92 /* \ */) {
+		const char = source[i];
+		if (char === '\\') {
 			i++;
 		}
-		else if (char === quote) {
+		else if (char === quote || quote === '`' && char === '$' && source[i + 1] === '{') {
 			return false;
 		}
 	}
