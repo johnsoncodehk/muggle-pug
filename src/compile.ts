@@ -1,8 +1,7 @@
 import type { Piece } from 'muggle-string';
 import pugLex from 'pug-lexer';
-import { Lines } from './lines';
-
-const pugParser = require('pug-parser');
+import pugParser from 'pug-parser';
+import { Lines } from './lines.js';
 
 /** An error of the pug lexer or parser. */
 export interface ParseError {

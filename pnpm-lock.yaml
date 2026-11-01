@@ -6,8 +6,8 @@ settings:
 
 dependencies:
   muggle-string:
-    specifier: ^1.0.0-alpha.2
-    version: 1.0.0-alpha.2
+    specifier: ^1.0.0
+    version: 1.0.0
   pug-lexer:
     specifier: ^5.0.1
     version: 5.0.1
@@ -721,8 +721,9 @@ packages:
     engines: {node: '>= 0.4'}
     dev: false
 
-  /muggle-string@1.0.0-alpha.2:
-    resolution: {integrity: sha512-8TQ20dJDbh/FZRR9rsgnfK6xrh9EoTKsXtNYOSNYOkFm7iiD7FUZXEG3iAHmhUhmYa4lXJxeYz7yCZ5J6A7/ZQ==}
+  /muggle-string@1.0.0:
+    resolution: {integrity: sha512-TIHQgdyxVPc6+vjbhx7dC6J7vKD6jvmSKEqkfRqoDmFB0wiq8N154HiZf1nz0ul19caDgJ3ndg8uKjSVNDq+Qg==}
+    engines: {node: ^20.19.0 || >=22.12.0}
     dev: false
 
   /nanoid@3.3.20:
