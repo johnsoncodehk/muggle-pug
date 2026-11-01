@@ -33,6 +33,35 @@ function ranges(source: string) {
 	);
 }
 
+describe('the examples of the readme', () => {
+	it('usage', () => {
+		const pugCode = 'div.foo hello';
+		const { pieces, ast, error } = compile(pugCode);
+		expect(pieces).toContainEqual({ start: 8, end: 13 });
+		expect(html(pugCode, pieces)).toBe('<div class="foo">hello</div>');
+		expect([ast.nodes.length, error]).toEqual([1, undefined]);
+	});
+
+	it('errors', () => {
+		const source = 'div\n  p(cl\n  span hi';
+		const { pieces, error } = compile(source);
+		expect(html(source, pieces)).toBe('<div><span>hi</span></div>');
+		expect(error).toMatchObject({ code: 'PUG:NO_END_BRACKET', line: 2, column: 9 });
+	});
+
+	it('source map', () => {
+		const source = { name: 'App.pug', content: 'div.foo hello' };
+		const { pieces } = compile(source.content);
+		const { text, map } = renderWithSourceMap(
+			sink => pieces.forEach(piece => sink(typeof piece === 'string' ? piece : { ...piece, source })),
+			(from: typeof source) => from.name,
+		);
+		expect(text).toBe('<div class="foo">hello</div>');
+		expect(map.mappings).toBe('AAAA,CAAA,GAAG,OAAA,CAAC,GAAG,CAAA,CAAC,KAAK,EAAb,GAAa');
+		expect(map.names).toEqual([]);
+	});
+});
+
 describe('html', () => {
 	it.each([
 		['div', '<div/>'],
@@ -194,21 +223,6 @@ describe('pieces', () => {
 	it('map a close tag name to the name of the tag', () => {
 		expect(compile('span x').pieces.filter(piece => typeof piece === 'object' && piece.text === undefined))
 			.toEqual([{ start: 0, end: 4 }, { start: 5, end: 6 }, { start: 0, end: 4 }]);
-	});
-
-	it('give a v3 source map without names, as no HTML renames an identifier of the template', () => {
-		const source = { name: 'a.pug', content: 'div.a(:b="c")\n  span x' };
-		const { text, map } = renderWithSourceMap(
-			sink => {
-				for (const piece of compile(source.content).pieces) {
-					sink(typeof piece === 'string' ? piece : { ...piece, source });
-				}
-			},
-			(from: typeof source) => from.name,
-		);
-		expect(text).toBe(html(source.content));
-		expect(map.names).toEqual([]);
-		expect(map.sources).toEqual(['a.pug']);
 	});
 });
 
