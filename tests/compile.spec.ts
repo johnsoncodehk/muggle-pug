@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Piece } from 'muggle-string';
+import { type Piece, renderWithSourceMap } from 'muggle-string';
 import { compile } from '../src';
 
 describe('compile', () => {
@@ -8,6 +8,24 @@ describe('compile', () => {
 		const { pieces } = compile(pugCode);
 		expect(toString(pieces, pugCode)).toBe(`<div class='foo'>hello</div>`);
 		expect(pieces).toContainEqual({ start: 8, end: 13 });
+	});
+
+	it('the source map example of the readme', () => {
+		const source = { name: 'App.pug', content: 'div.foo hello' };
+		const { pieces } = compile(source.content);
+		const { text, map } = renderWithSourceMap(
+			sink => pieces.forEach(piece => sink(typeof piece === 'string' ? piece : { ...piece, source })),
+			(from: typeof source) => from.name,
+		);
+		expect(text).toBe(`<div class='foo'>hello</div>`);
+		expect(map.mappings).toBe('A,CAAA,G,CAAG,K,CAAA,IAAI,C,CAAC,K;');
+	});
+
+	it('an error leaves no pieces and no AST', () => {
+		const result = compile('div(');
+		expect(result.error).toBeDefined();
+		expect(result.pieces).toEqual([]);
+		expect(result.ast).toBeUndefined();
 	});
 
 	describe('multiline class binding with backticks', () => {
