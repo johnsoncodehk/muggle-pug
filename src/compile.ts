@@ -154,8 +154,7 @@ export function compile(source: string): CompileResult {
 
 		let ast: Block;
 		try {
-			// the name that pug-parser gives the template in its warnings
-			ast = parse(tokens, { filename: 'template.pug' }) as Block;
+			ast = parse(tokens) as Block;
 		}
 		catch (thrown) {
 			const parseError = toCompileError(source, lines, thrown, source.length);
